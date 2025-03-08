@@ -85,3 +85,7 @@ coverage.xml
 
 # Docker
 *.env
+
+# External repositories that are included as dependencies but not as part of this project
+FastWhisperAPI/
+MeloTTS/
