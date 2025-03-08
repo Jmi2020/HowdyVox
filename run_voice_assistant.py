@@ -2,6 +2,7 @@
 
 import logging
 import time
+import os
 from colorama import Fore, init
 from voice_assistant.audio import record_audio, play_audio
 from voice_assistant.transcription import transcribe_audio
@@ -65,7 +66,9 @@ def main():
             chat_history.append({"role": "assistant", "content": response_text})
 
             # Determine the output file format based on the TTS model
-            if Config.TTS_MODEL == 'openai' or Config.TTS_MODEL == 'elevenlabs' or Config.TTS_MODEL == 'cartesia' or Config.TTS_MODEL == 'kokoro':
+            if Config.TTS_MODEL == 'kokoro':
+                output_file = 'output.wav'
+            elif Config.TTS_MODEL == 'openai' or Config.TTS_MODEL == 'elevenlabs' or Config.TTS_MODEL == 'cartesia':
                 output_file = 'output.mp3'
             else:
                 output_file = 'output.wav'
@@ -74,7 +77,12 @@ def main():
             tts_api_key = get_tts_api_key()
 
             # Convert the response text to speech and save it to the appropriate file
-            text_to_speech(Config.TTS_MODEL, tts_api_key, response_text, output_file, Config.LOCAL_MODEL_PATH)
+            success = text_to_speech(Config.TTS_MODEL, tts_api_key, response_text, output_file, Config.LOCAL_MODEL_PATH)
+            
+            # Check if text_to_speech returned a different file path (in case it created a WAV instead of MP3)
+            if not os.path.exists(output_file) and os.path.exists(os.path.splitext(output_file)[0] + '.wav'):
+                output_file = os.path.splitext(output_file)[0] + '.wav'
+                logging.info(f"Using WAV file for playback: {output_file}")
 
             # Play the generated speech audio
             if Config.TTS_MODEL=="cartesia":

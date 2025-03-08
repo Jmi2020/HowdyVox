@@ -122,13 +122,16 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
             # Get file extension
             _, file_ext = os.path.splitext(output_file_path)
             
-            # Create a temporary file with .wav extension if the output is MP3
-            temp_output_path = output_file_path
+            # Use the output path directly without conversion
+            # If the requested output is MP3 but we want to skip conversion, use WAV instead
             if file_ext.lower() == '.mp3':
-                temp_output_path = output_file_path + ".temp.wav"
+                # Change the extension to .wav
+                wav_output_path = os.path.splitext(output_file_path)[0] + '.wav'
+            else:
+                wav_output_path = output_file_path
                 
             # Run kokoro as a subprocess
-            cmd = ["kokoro", "-m", voice_model, "-t", text, "-o", temp_output_path]
+            cmd = ["kokoro", "-m", voice_model, "-t", text, "-o", wav_output_path]
             logging.info(f"Running kokoro command: {' '.join(cmd)}")
             
             try:
@@ -140,30 +143,18 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                 )
                 
                 # Check if the file was created
-                if not os.path.exists(temp_output_path):
-                    raise FileNotFoundError(f"Kokoro failed to generate audio file at {temp_output_path}")
+                if not os.path.exists(wav_output_path):
+                    raise FileNotFoundError(f"Kokoro failed to generate audio file at {wav_output_path}")
                 
-                # If we need to convert from WAV to MP3
-                if temp_output_path != output_file_path:
-                    try:
-                        from pydub import AudioSegment
-                        sound = AudioSegment.from_wav(temp_output_path)
-                        sound.export(output_file_path, format="mp3", bitrate="192k")
-                        logging.info(f"Converted WAV to MP3: {output_file_path}")
-                        
-                        # Remove the temporary WAV file
-                        os.remove(temp_output_path)
-                    except Exception as conv_err:
-                        logging.error(f"Error converting WAV to MP3: {conv_err}")
-                        # If conversion fails, copy the WAV file as a fallback
-                        shutil.copy2(temp_output_path, output_file_path)
-                        logging.warning(f"Copied WAV file to output path as fallback")
+                # If the output path was supposed to be an MP3 but we created a WAV,
+                # return the WAV path instead, but don't convert it
+                if wav_output_path != output_file_path:
+                    logging.info(f"Using WAV file directly: {wav_output_path}")
+                    # Update the output_file_path to point to the WAV file
+                    # This will be returned to the calling function
+                    output_file_path = wav_output_path
                     
-                # Verify the final output file exists
-                if not os.path.exists(output_file_path):
-                    raise FileNotFoundError(f"Failed to create final audio file at {output_file_path}")
-                    
-                logging.info(f"Kokoro TTS successfully generated audio file at {output_file_path}")
+                logging.info(f"Kokoro TTS successfully generated audio file at {wav_output_path}")
             except subprocess.CalledProcessError as e:
                 logging.error(f"Kokoro command failed: {e.stderr}")
                 raise
