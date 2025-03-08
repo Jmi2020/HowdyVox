@@ -4,12 +4,15 @@ import json
 import pyaudio
 import elevenlabs
 import soundfile as sf
+import subprocess
+import os
+import shutil
 
 from openai import OpenAI
 from deepgram import DeepgramClient, SpeakOptions
 from elevenlabs.client import ElevenLabs
 from cartesia import Cartesia
-
+from voice_assistant.config import Config
 from voice_assistant.local_tts_generation import generate_audio_file_melotts
 
 def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, local_model_path:str=None):
@@ -17,7 +20,7 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
     Convert text to speech using the specified model.
     
     Args:
-    model (str): The model to use for TTS ('openai', 'deepgram', 'elevenlabs', 'local').
+    model (str): The model to use for TTS ('openai', 'deepgram', 'elevenlabs', 'local', 'kokoro').
     api_key (str): The API key for the TTS service.
     text (str): The text to convert to speech.
     output_file_path (str): The path to save the generated speech audio file.
@@ -25,6 +28,14 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
     """
     
     try:
+        # Delete existing output file if it exists
+        if os.path.exists(output_file_path):
+            try:
+                os.remove(output_file_path)
+                logging.info(f"Removed existing file: {output_file_path}")
+            except Exception as e:
+                logging.warning(f"Could not remove existing file {output_file_path}: {e}")
+        
         if model == 'openai':
             client = OpenAI(api_key=api_key)
             speech_response = client.audio.speech.create(
@@ -34,8 +45,6 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
             )
 
             speech_response.stream_to_file(output_file_path)
-            # with open(output_file_path, "wb") as audio_file:
-            #     audio_file.write(speech_response['data'])  # Ensure this correctly accesses the binary content
 
         elif model == 'deepgram':
             client = DeepgramClient(api_key=api_key)
@@ -99,8 +108,83 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                 stream.close()
             p.terminate()
 
+        elif model == "kokoro":
+            # Define the kokoro command
+            voice_model = Config.KOKORO_VOICE  # Use the voice from config
+            if local_model_path:
+                voice_model = local_model_path
+                
+            # Ensure the output path is accessible
+            output_dir = os.path.dirname(output_file_path)
+            if output_dir and not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+            
+            # Get file extension
+            _, file_ext = os.path.splitext(output_file_path)
+            
+            # Create a temporary file with .wav extension if the output is MP3
+            temp_output_path = output_file_path
+            if file_ext.lower() == '.mp3':
+                temp_output_path = output_file_path + ".temp.wav"
+                
+            # Run kokoro as a subprocess
+            cmd = ["kokoro", "-m", voice_model, "-t", text, "-o", temp_output_path]
+            logging.info(f"Running kokoro command: {' '.join(cmd)}")
+            
+            try:
+                process = subprocess.run(
+                    cmd,
+                    text=True,
+                    capture_output=True,
+                    check=True
+                )
+                
+                # Check if the file was created
+                if not os.path.exists(temp_output_path):
+                    raise FileNotFoundError(f"Kokoro failed to generate audio file at {temp_output_path}")
+                
+                # If we need to convert from WAV to MP3
+                if temp_output_path != output_file_path:
+                    try:
+                        from pydub import AudioSegment
+                        sound = AudioSegment.from_wav(temp_output_path)
+                        sound.export(output_file_path, format="mp3", bitrate="192k")
+                        logging.info(f"Converted WAV to MP3: {output_file_path}")
+                        
+                        # Remove the temporary WAV file
+                        os.remove(temp_output_path)
+                    except Exception as conv_err:
+                        logging.error(f"Error converting WAV to MP3: {conv_err}")
+                        # If conversion fails, copy the WAV file as a fallback
+                        shutil.copy2(temp_output_path, output_file_path)
+                        logging.warning(f"Copied WAV file to output path as fallback")
+                    
+                # Verify the final output file exists
+                if not os.path.exists(output_file_path):
+                    raise FileNotFoundError(f"Failed to create final audio file at {output_file_path}")
+                    
+                logging.info(f"Kokoro TTS successfully generated audio file at {output_file_path}")
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Kokoro command failed: {e.stderr}")
+                raise
+            
         elif model == "melotts": # this is a local model
-            generate_audio_file_melotts(text=text, filename=output_file_path)
+            try:
+                result = generate_audio_file_melotts(text=text, filename=output_file_path)
+                
+                # Check if the API returned a different path than requested
+                if result and isinstance(result, dict) and 'file_path' in result:
+                    generated_path = result['file_path']
+                    
+                    # If the generated path is different from the requested one, copy the file
+                    if generated_path != output_file_path and os.path.exists(generated_path):
+                        logging.info(f"Copying audio from {generated_path} to {output_file_path}")
+                        shutil.copy2(generated_path, output_file_path)
+            except Exception as e:
+                logging.error(f"MeloTTS failed, error: {str(e)}")
+                # Fall back to Kokoro if MeloTTS fails
+                logging.info("Falling back to Kokoro TTS")
+                return text_to_speech("kokoro", api_key, text, output_file_path, local_model_path)
         
         elif model == 'local':
             with open(output_file_path, "wb") as f:
@@ -109,5 +193,16 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
         else:
             raise ValueError("Unsupported TTS model")
         
+        # Verify the output file exists and has content
+        if not os.path.exists(output_file_path):
+            raise FileNotFoundError(f"Output file was not created at {output_file_path}")
+            
+        file_size = os.path.getsize(output_file_path)
+        if file_size < 100:  # Suspiciously small file
+            logging.warning(f"Warning: Generated audio file is very small ({file_size} bytes)")
+            
+        return True
+        
     except Exception as e:
         logging.error(f"Failed to convert text to speech: {e}")
+        return False

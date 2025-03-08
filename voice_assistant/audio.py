@@ -8,6 +8,10 @@ import pydub
 from io import BytesIO
 from pydub import AudioSegment
 from functools import lru_cache
+import pyaudio
+import wave
+import os
+import subprocess
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -73,15 +77,70 @@ def play_audio(file_path):
     Args:
     file_path (str): The path to the audio file to play.
     """
+    if not os.path.exists(file_path):
+        logging.error(f"No file '{file_path}' found in working directory '{os.getcwd()}'.")
+        return
+    
+    file_extension = os.path.splitext(file_path)[1].lower()
+    
     try:
-        pygame.mixer.init()
-        pygame.mixer.music.load(file_path)
-        pygame.mixer.music.play()
-        while pygame.mixer.music.get_busy():
-            pygame.time.wait(100)
-    except pygame.error as e:
-        logging.error(f"Failed to play audio: {e}")
+        if file_extension == '.wav':
+            # Play WAV files using the wave and pyaudio modules
+            wf = wave.open(file_path, 'rb')
+            p = pyaudio.PyAudio()
+            
+            stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
+                            channels=wf.getnchannels(),
+                            rate=wf.getframerate(),
+                            output=True)
+            
+            chunk_size = 1024
+            data = wf.readframes(chunk_size)
+            
+            while data:
+                stream.write(data)
+                data = wf.readframes(chunk_size)
+            
+            stream.stop_stream()
+            stream.close()
+            p.terminate()
+            wf.close()
+        elif file_extension == '.mp3':
+            # For MP3 files, try different approaches depending on platform
+            try:
+                # First, try using pydub which is more reliable
+                sound = AudioSegment.from_file(file_path, format="mp3")
+                # Export to a temporary WAV file
+                temp_wav = "temp_output.wav"
+                sound.export(temp_wav, format="wav")
+                # Play the WAV file
+                play_audio(temp_wav)
+                # Clean up temp file
+                try:
+                    os.remove(temp_wav)
+                except:
+                    pass
+            except Exception as e:
+                logging.warning(f"Pydub playback failed: {str(e)}. Trying system player...")
+                
+                # If pydub fails, try system commands
+                if os.name == 'posix':  # macOS, Linux
+                    try:
+                        # Try with afplay on macOS
+                        if os.uname().sysname == 'Darwin':
+                            subprocess.run(['afplay', file_path], check=True)
+                        else:
+                            # Try with mplayer on Linux
+                            subprocess.run(['mplayer', file_path], check=True)
+                    except Exception as e2:
+                        logging.error(f"System audio player failed: {str(e2)}")
+                else:  # Windows
+                    try:
+                        # On Windows, use the default media player
+                        os.startfile(file_path)
+                    except Exception as e2:
+                        logging.error(f"System audio player failed: {str(e2)}")
+        else:
+            logging.error(f"Unsupported audio file format: {file_extension}")
     except Exception as e:
-        logging.error(f"An unexpected error occurred while playing audio: {e}")
-    finally:
-        pygame.mixer.quit()
+        logging.error(f"Failed to play audio: {str(e)}")

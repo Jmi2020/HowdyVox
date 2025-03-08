@@ -1,24 +1,36 @@
-# VERBI - Voice Assistant 🎙️
-<p align="center">
-<a href="https://trendshift.io/repositories/11584" target="_blank"><img src="https://trendshift.io/api/badge/repositories/11584" alt="PromtEngineer%2FVerbi | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-</p>
+# HowdyTTS - A Voice Assistant with Cowboy Charm 🤠
 
-[![GitHub Stars](https://img.shields.io/github/stars/PromtEngineer/Verbi?style=social)](https://github.com/PromtEngineer/Verbi/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/PromtEngineer/Verbi?style=social)](https://github.com/PromtEngineer/Verbi/network/members)
-[![GitHub Issues](https://img.shields.io/github/issues/PromtEngineer/Verbi)](https://github.com/PromtEngineer/Verbi/issues)
-[![GitHub Pull Requests](https://img.shields.io/github/issues-pr/PromtEngineer/Verbi)](https://github.com/PromtEngineer/Verbi/pulls)
-[![License](https://img.shields.io/github/license/PromtEngineer/Verbi)](https://github.com/PromtEngineer/Verbi/blob/main/LICENSE)
+This project is a friendly fork that adds Kokoro TTS support with a cowboy voice, building upon several excellent open-source projects to create a versatile voice assistant with multiple text-to-speech options.
+
+## Credits and Acknowledgments
+
+This project builds upon the following open-source projects:
+
+- [Verbi](https://github.com/PromtEngineer/Verbi) - The original voice assistant project that forms the base of this work
+- [FastWhisperAPI](https://github.com/3choff/FastWhisperAPI) - For speech-to-text capabilities
+- [MeloTTS](https://github.com/myshell-ai/MeloTTS) - For text-to-speech capabilities
+- [Kokoro](https://github.com/ttsdr/kokoro) - For the cowboy voice TTS capabilities
+  - Which itself builds on:
+    - [TTS by Coqui-ai](https://github.com/coqui-ai/TTS)
+    - [VITS](https://github.com/jaywalnut310/vits)
+    - [VITS2](https://github.com/daniilrobnikov/vits2)
+    - [Bert-VITS2](https://github.com/fishaudio/Bert-VITS2)
 
 ## Motivation ✨✨✨
 
 Welcome to the Voice Assistant project! 🎙️ Our goal is to create a modular voice assistant application that allows you to experiment with state-of-the-art (SOTA) models for various components. The modular structure provides flexibility, enabling you to pick and choose between different SOTA models for transcription, response generation, and text-to-speech (TTS). This approach facilitates easy testing and comparison of different models, making it an ideal platform for research and development in voice assistant technologies. Whether you're a developer, researcher, or enthusiast, this project is for you!
 
+## What's New in HowdyTTS? 🌟
+
+HowdyTTS adds support for Kokoro TTS with the 'am_michael' voice model, giving your voice assistant a friendly cowboy persona. The project maintains all the flexibility of the original Verbi project while adding this unique voice option.
+
 ## Features 🧰
 
-- **Modular Design**: Easily switch between different models for transcription, response generation, and TTS.
-- **Support for Multiple APIs**: Integrates with OpenAI, Groq, and Deepgram APIs, along with placeholders for local models.
-- **Audio Recording and Playback**: Record audio from the microphone and play generated speech.
-- **Configuration Management**: Centralized configuration in `config.py` for easy setup and management.
+- **Modular Design**: Easily switch between different models for transcription, response generation, and TTS
+- **Kokoro Integration**: Use the cowboy voice for a unique assistant personality
+- **Support for Multiple APIs**: Integrates with OpenAI, Groq, Deepgram, and Kokoro
+- **Audio Recording and Playback**: Record audio from the microphone and play generated speech
+- **Configuration Management**: Centralized configuration in `config.py` for easy setup
 
 ## Project Structure 📂
 
@@ -110,6 +122,18 @@ If you are running LLM locally via [Ollama](https://ollama.com/), make sure the 
 - Follow this [link](https://elevenlabs.io/app/voice-lab/share/de3746fa51a09e771604d74b5d1ff6797b6b96a5958f9de95cef544dde31dad9/WArWzu0z4mbSyy5BfRKM) to add the Jarvis voice to your ElevenLabs account.
 - Name the voice 'Paul J.' or, if you prefer a different name, ensure it matches the ELEVENLABS_VOICE_ID variable in the text_to_speech.py file.
 
+6. 🤠 **Set up Kokoro TTS**
+
+```shell
+pip install kokoro
+```
+
+For the cowboy voice, use the following settings in config.py:
+```python
+TTS_MODEL = 'kokoro'
+KOKORO_VOICE = 'am_michael'
+```
+
 7. 🏃 **Run the voice assistant**
 
 ```shell
@@ -188,10 +212,11 @@ If you are running LLM locally via [Ollama](https://ollama.com/), make sure the 
 
 #### Text-to-Speech (TTS) Models  🔊
 
-- **OpenAI**: Uses OpenAI's TTS model with the 'fable' voice.
-- **Deepgram**: Uses Deepgram's TTS model with the 'aura-angus-en' voice.
-- **ElevenLabs**: Uses ElevenLabs' TTS model with the 'Paul J.' voice.
-- **Local**: Placeholder for a local TTS model.
+- **Kokoro**: Uses Kokoro's TTS model with the 'am_michael' cowboy voice
+- **OpenAI**: Uses OpenAI's TTS model with the 'fable' voice
+- **Deepgram**: Uses Deepgram's TTS model with the 'aura-angus-en' voice
+- **ElevenLabs**: Uses ElevenLabs' TTS model with the 'Paul J.' voice
+- **Local**: Uses MeloTTS as a local TTS model
 
 ## Detailed Module Descriptions  📘
 

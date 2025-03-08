@@ -4,6 +4,8 @@ from melo.api import TTS
 from config import Config
 import torch
 import uuid
+import nltk
+nltk.download('punkt')
 
 app = FastAPI()
 
