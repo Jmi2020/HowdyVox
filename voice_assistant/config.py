@@ -13,7 +13,7 @@ class Config:
     Attributes:
         TRANSCRIPTION_MODEL (str): The model to use for transcription ('openai', 'groq', 'deepgram', 'fastwhisperapi', 'local').
         RESPONSE_MODEL (str): The model to use for response generation ('openai', 'groq', 'local').
-        TTS_MODEL (str): The model to use for text-to-speech ('openai', 'deepgram', 'elevenlabs', 'local', 'kokoro').
+        TTS_MODEL (str): The model to use for text-to-speech ('openai', 'deepgram', 'elevenlabs', 'local', 'kokoro', 'kokoro_onnx').
         OPENAI_API_KEY (str): API key for OpenAI services.
         GROQ_API_KEY (str): API key for Groq services.
         DEEPGRAM_API_KEY (str): API key for Deepgram services.
@@ -23,10 +23,13 @@ class Config:
     # Model selection
     TRANSCRIPTION_MODEL = 'fastwhisperapi'  # possible values: openai, groq, deepgram, fastwhisperapi
     RESPONSE_MODEL = 'ollama'  # possible values: openai, groq, ollama
-    TTS_MODEL = 'kokoro'  # possible values: openai, deepgram, elevenlabs, melotts, cartesia, kokoro
+    TTS_MODEL = 'kokoro_onnx'  # possible values: openai, deepgram, elevenlabs, melotts, cartesia, kokoro, kokoro_onnx
 
     # Kokoro TTS settings
     KOKORO_VOICE = 'am_michael'  # Default to the cowboy voice
+    
+    # ONNX model settings
+    KOKORO_ONNX_MODEL_PATH = os.getenv("KOKORO_ONNX_MODEL_PATH")  # Path to ONNX model directory
     
     # currently using the MeloTTS for local models. here is how to get started:
     # https://github.com/myshell-ai/MeloTTS/blob/main/docs/install.md#linux-and-macos-install
@@ -63,7 +66,7 @@ class Config:
         Config._validate_model('RESPONSE_MODEL', [
             'openai', 'groq', 'ollama', 'local'])
         Config._validate_model('TTS_MODEL', [
-            'openai', 'deepgram', 'elevenlabs', 'melotts', 'cartesia', 'kokoro', 'local'])
+            'openai', 'deepgram', 'elevenlabs', 'melotts', 'cartesia', 'kokoro', 'kokoro_onnx', 'local'])
 
         Config._validate_api_key('TRANSCRIPTION_MODEL', 'openai', 'OPENAI_API_KEY')
         Config._validate_api_key('TRANSCRIPTION_MODEL', 'groq', 'GROQ_API_KEY')

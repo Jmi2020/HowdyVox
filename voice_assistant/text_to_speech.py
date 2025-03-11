@@ -15,12 +15,20 @@ from cartesia import Cartesia
 from voice_assistant.config import Config
 from voice_assistant.local_tts_generation import generate_audio_file_melotts
 
+# Import our new ONNX implementation
+try:
+    from voice_assistant.kokoro_onnx.integration import create_onnx_tts
+    KOKORO_ONNX_AVAILABLE = True
+except ImportError:
+    KOKORO_ONNX_AVAILABLE = False
+    logging.warning("KokoroOnnx integration not available. Missing dependencies.")
+
 def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, local_model_path:str=None):
     """
     Convert text to speech using the specified model.
     
     Args:
-    model (str): The model to use for TTS ('openai', 'deepgram', 'elevenlabs', 'local', 'kokoro').
+    model (str): The model to use for TTS ('openai', 'deepgram', 'elevenlabs', 'local', 'kokoro', 'kokoro_onnx').
     api_key (str): The API key for the TTS service.
     text (str): The text to convert to speech.
     output_file_path (str): The path to save the generated speech audio file.
@@ -107,6 +115,45 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                 stream.stop_stream()
                 stream.close()
             p.terminate()
+
+        elif model == "kokoro_onnx":
+            # New ONNX-based KokoroTTS implementation
+            if not KOKORO_ONNX_AVAILABLE:
+                logging.warning("KokoroOnnx not available, falling back to standard Kokoro")
+                return text_to_speech("kokoro", api_key, text, output_file_path, local_model_path)
+                
+            try:
+                # Get voice model name from config
+                voice_model = Config.KOKORO_VOICE if hasattr(Config, 'KOKORO_VOICE') else "am_michael"
+                
+                # Get model path from config or use the provided model path
+                model_path = None
+                if hasattr(Config, 'KOKORO_ONNX_MODEL_PATH') and Config.KOKORO_ONNX_MODEL_PATH:
+                    model_path = Config.KOKORO_ONNX_MODEL_PATH
+                elif local_model_path and os.path.exists(local_model_path):
+                    model_path = local_model_path
+                
+                logging.info(f"Using KokoroOnnx with voice: {voice_model}, model path: {model_path or 'default'}")
+                
+                # Create the TTS integration with specific model type
+                dtype = "q8"  # Use quantized model by default for better performance
+                tts = create_onnx_tts(voice=voice_model, model_path=model_path, dtype=dtype)
+                
+                # List available voices for debugging
+                available_voices = tts.list_voices()
+                logging.info(f"Available voices: {', '.join(available_voices)}")
+                
+                # Generate audio
+                result_path = tts.generate_audio(text, output_file_path)
+                
+                if not result_path or not os.path.exists(result_path):
+                    raise FileNotFoundError(f"KokoroOnnx failed to generate audio at {output_file_path}")
+                
+                logging.info(f"KokoroOnnx successfully generated audio at {output_file_path}")
+            except Exception as e:
+                logging.error(f"KokoroOnnx error: {e}")
+                logging.info("Falling back to standard Kokoro TTS")
+                return text_to_speech("kokoro", api_key, text, output_file_path, local_model_path)
 
         elif model == "kokoro":
             # Define the kokoro command
