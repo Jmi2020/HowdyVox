@@ -14,7 +14,8 @@ setup(
         'deepgram-sdk',
         'python-dotenv',
         'colorama',
-        'requests'
+        'requests',
+        'pyaudio==0.2.12'  # Specific version required; 0.2.14 has compatibility issues with PortAudio on macOS
     ],
     entry_points={
         'console_scripts': [

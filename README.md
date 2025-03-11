@@ -60,6 +60,7 @@ voice_assistant/
 
 - Python 3.10 or higher
 - Virtual environment (recommended)
+- **PyAudio 0.2.12** (specifically version 0.2.12, as version 0.2.14 has compatibility issues with PortAudio on macOS)
 
 #### Step-by-Step Instructions 🔢
 
@@ -88,6 +89,13 @@ voice_assistant/
 ```shell
    pip install -r requirements.txt
 ```
+
+> ⚠️ **Important Note About PyAudio**: This project requires PyAudio version 0.2.12 and will not work with version 0.2.14 due to compatibility issues with PortAudio on macOS. If you encounter errors related to PyAudio or symbols not found in "flat namespace", please ensure you're using PyAudio 0.2.12:
+> ```shell
+> pip uninstall -y pyaudio
+> pip install pyaudio==0.2.12
+> ```
+
 4. 🛠️ **Set up the environment variables**
 
 Create a  `.env` file in the root directory and add your API keys:
