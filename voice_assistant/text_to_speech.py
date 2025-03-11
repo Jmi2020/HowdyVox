@@ -1,4 +1,4 @@
-# voice_assistant/text_to_speech.py
+https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX # voice_assistant/text_to_speech.py
 import logging
 import json
 import pyaudio
@@ -126,22 +126,15 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                 # Get voice model name from config
                 voice_model = Config.KOKORO_VOICE if hasattr(Config, 'KOKORO_VOICE') else "am_michael"
                 
-                # Get model path from config or use the provided model path
+                # Use the provided model path if available
                 model_path = None
-                if hasattr(Config, 'KOKORO_ONNX_MODEL_PATH') and Config.KOKORO_ONNX_MODEL_PATH:
-                    model_path = Config.KOKORO_ONNX_MODEL_PATH
-                elif local_model_path and os.path.exists(local_model_path):
+                if local_model_path and os.path.exists(local_model_path):
                     model_path = local_model_path
                 
-                logging.info(f"Using KokoroOnnx with voice: {voice_model}, model path: {model_path or 'default'}")
+                logging.info(f"Using KokoroOnnx with voice: {voice_model}")
                 
-                # Create the TTS integration with specific model type
-                dtype = "q8"  # Use quantized model by default for better performance
-                tts = create_onnx_tts(voice=voice_model, model_path=model_path, dtype=dtype)
-                
-                # List available voices for debugging
-                available_voices = tts.list_voices()
-                logging.info(f"Available voices: {', '.join(available_voices)}")
+                # Create the TTS integration
+                tts = create_onnx_tts(voice=voice_model, model_path=model_path)
                 
                 # Generate audio
                 result_path = tts.generate_audio(text, output_file_path)
