@@ -93,4 +93,4 @@ unused_components/
 # FastWhisperAPI is now included in the repository
 
 # Kokoro ONNX
-kokoro-v1.0.onnx/
+kokoro-v1.0.onnx
