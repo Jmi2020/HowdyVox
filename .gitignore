@@ -45,7 +45,7 @@ env/
 
 # Logs
 *.log
-app.log
+FastWhisperAPI/app.log*
 
 # Local development
 .DS_Store
@@ -86,6 +86,7 @@ coverage.xml
 # Docker
 *.env
 
-# External repositories that are included as dependencies but not as part of this project
-FastWhisperAPI/
+# External repositories that are included as dependencies
+# (We want to track them in our repo but they are separate projects)
 MeloTTS/
+# FastWhisperAPI is now included in the repository
