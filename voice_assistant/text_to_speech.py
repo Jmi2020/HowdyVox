@@ -2,12 +2,19 @@
 import logging
 import subprocess
 import os
-
+import soundfile as sf
+import warnings
+from kokoro_onnx import Kokoro
 from voice_assistant.config import Config
+
+# Custom filter to suppress specific warnings
+class WordsCountMismatchFilter(logging.Filter):
+    def filter(self, record):
+        return "words count mismatch" not in record.getMessage()
 
 def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, local_model_path:str=None):
     """
-    Convert text to speech using Kokoro.
+    Convert text to speech using Kokoro ONNX model.
     
     Args:
     model (str): Should always be 'kokoro'.
@@ -16,6 +23,10 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
     output_file_path (str): The path to save the generated speech audio file.
     local_model_path (str): Optional custom voice model path.
     """
+    
+    # Apply the filter to suppress words count mismatch warnings
+    for handler in logging.root.handlers:
+        handler.addFilter(WordsCountMismatchFilter())
     
     try:
         # Delete existing output file if it exists
@@ -27,11 +38,6 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                 logging.warning(f"Could not remove existing file {output_file_path}: {e}")
         
         if model == "kokoro":
-            # Define the kokoro command
-            voice_model = Config.KOKORO_VOICE  # Use the voice from config
-            if local_model_path:
-                voice_model = local_model_path
-                
             # Ensure the output path is accessible
             output_dir = os.path.dirname(output_file_path)
             if output_dir and not os.path.exists(output_dir):
@@ -48,21 +54,38 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
             else:
                 wav_output_path = output_file_path
                 
-            # Run kokoro as a subprocess
-            cmd = ["kokoro", "-m", voice_model, "-t", text, "-o", wav_output_path]
-            logging.info(f"Running kokoro command: {' '.join(cmd)}")
+            # Use kokoro_onnx directly instead of subprocess
+            voice_model = Config.KOKORO_VOICE
+            logging.info(f"Generating speech using kokoro_onnx with voice: {voice_model}")
             
             try:
-                process = subprocess.run(
-                    cmd,
-                    text=True,
-                    capture_output=True,
-                    check=True
-                )
+                # Initialize Kokoro model
+                model_path = "kokoro-v1.0.onnx"
+                voices_path = "voices-v1.0.bin"
                 
-                # Check if the file was created
-                if not os.path.exists(wav_output_path):
-                    raise FileNotFoundError(f"Kokoro failed to generate audio file at {wav_output_path}")
+                # If custom model paths are provided, use them
+                if local_model_path:
+                    if os.path.isdir(local_model_path):
+                        model_path = os.path.join(local_model_path, "kokoro-v1.0.onnx")
+                        voices_path = os.path.join(local_model_path, "voices-v1.0.bin")
+                    else:
+                        model_path = local_model_path
+                
+                # Initialize the Kokoro model and suppress warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=UserWarning)
+                    kokoro = Kokoro(model_path, voices_path)
+                    
+                    # Generate audio
+                    samples, sample_rate = kokoro.create(
+                        text, 
+                        voice=voice_model, 
+                        speed=1.0, 
+                        lang="en-us"
+                    )
+                
+                # Save the audio file
+                sf.write(wav_output_path, samples, sample_rate)
                 
                 # If the output path was supposed to be an MP3 but we created a WAV,
                 # return the WAV path instead, but don't convert it
@@ -72,9 +95,9 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                     # This will be returned to the calling function
                     output_file_path = wav_output_path
                     
-                logging.info(f"Kokoro TTS successfully generated audio file at {wav_output_path}")
-            except subprocess.CalledProcessError as e:
-                logging.error(f"Kokoro command failed: {e.stderr}")
+                logging.info(f"Kokoro ONNX successfully generated audio file at {wav_output_path}")
+            except Exception as e:
+                logging.error(f"Kokoro ONNX processing failed: {str(e)}")
                 raise
         else:
             raise ValueError("Only Kokoro is supported for text-to-speech")
