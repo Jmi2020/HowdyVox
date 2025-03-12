@@ -1,4 +1,4 @@
-# voice_assistant/main.py
+# run_voice_assistant.py
 
 import logging
 import time
@@ -18,31 +18,28 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Initialize colorama
 init(autoreset=True)
 
-import threading
-
-
 def main():
     """
-    Main function to run the voice assistant.
+    Main function to run the offline voice assistant using FastWhisperAPI, Ollama, and Kokoro.
     """
     chat_history = [
-        {"role": "system", "content": """ You are a helpful Assistant called Verbi. 
+        {"role": "system", "content": """ You are a helpful Assistant called Howdy. 
          You are friendly and fun and you will help the users with their requests.
          Your answers are short and concise. """}
     ]
 
     while True:
         try:
-            # Record audio from the microphone and save it as 'test.wav'
+            # Record audio from the microphone and save it
             record_audio(Config.INPUT_AUDIO)
 
-            # Get the API key for transcription
+            # Get the API key for transcription (will be None for FastWhisperAPI)
             transcription_api_key = get_transcription_api_key()
             
-            # Transcribe the audio file
+            # Transcribe the audio file using FastWhisperAPI
             user_input = transcribe_audio(Config.TRANSCRIPTION_MODEL, transcription_api_key, Config.INPUT_AUDIO, Config.LOCAL_MODEL_PATH)
 
-            # Check if the transcription is empty and restart the recording if it is. This check will avoid empty requests if vad_filter is used in the fastwhisperapi.
+            # Check if the transcription is empty and restart the recording if it is
             if not user_input:
                 logging.info("No transcription was returned. Starting recording again.")
                 continue
@@ -55,42 +52,29 @@ def main():
             # Append the user's input to the chat history
             chat_history.append({"role": "user", "content": user_input})
 
-            # Get the API key for response generation
+            # Get the API key for response generation (will be None for Ollama)
             response_api_key = get_response_api_key()
 
-            # Generate a response
+            # Generate a response using Ollama
             response_text = generate_response(Config.RESPONSE_MODEL, response_api_key, chat_history, Config.LOCAL_MODEL_PATH)
             logging.info(Fore.CYAN + "Response: " + response_text + Fore.RESET)
 
             # Append the assistant's response to the chat history
             chat_history.append({"role": "assistant", "content": response_text})
 
-            # Determine the output file format based on the TTS model
-            if Config.TTS_MODEL == 'kokoro' or Config.TTS_MODEL == 'kokoro_onnx':
-                output_file = 'output.wav'
-            elif Config.TTS_MODEL == 'openai' or Config.TTS_MODEL == 'elevenlabs' or Config.TTS_MODEL == 'cartesia':
-                output_file = 'output.mp3'
-            else:
-                output_file = 'output.wav'
+            # For Kokoro, always use WAV output
+            output_file = 'output.wav'
 
-            # Get the API key for TTS
+            # Get the API key for TTS (will be None for Kokoro)
             tts_api_key = get_tts_api_key()
 
-            # Convert the response text to speech and save it to the appropriate file
+            # Convert the response text to speech using Kokoro
             success = text_to_speech(Config.TTS_MODEL, tts_api_key, response_text, output_file, Config.LOCAL_MODEL_PATH)
             
-            # Check if text_to_speech returned a different file path (in case it created a WAV instead of MP3)
-            if not os.path.exists(output_file) and os.path.exists(os.path.splitext(output_file)[0] + '.wav'):
-                output_file = os.path.splitext(output_file)[0] + '.wav'
-                logging.info(f"Using WAV file for playback: {output_file}")
-
             # Play the generated speech audio
-            if Config.TTS_MODEL=="cartesia":
-                pass
-            else:
-                play_audio(output_file)
+            play_audio(output_file)
             
-            # Clean up audio files
+            # Clean up audio files - uncomment if you want to delete after use
             # delete_file(Config.INPUT_AUDIO)
             # delete_file(output_file)
 

@@ -89,4 +89,5 @@ coverage.xml
 # External repositories that are included as dependencies
 # (We want to track them in our repo but they are separate projects)
 MeloTTS/
+unused_components/
 # FastWhisperAPI is now included in the repository
