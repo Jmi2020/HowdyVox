@@ -29,6 +29,12 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
     """
     Record audio from the microphone and save it as an MP3 file.
     """
+    # Import here to avoid circular import
+    from voice_assistant.config import Config
+    
+    # Make sure temp audio directory exists
+    os.makedirs(Config.TEMP_AUDIO_DIR, exist_ok=True)
+    
     recognizer = get_recognizer()
     recognizer.energy_threshold = energy_threshold
     recognizer.pause_threshold = pause_threshold
@@ -70,6 +76,12 @@ def play_audio(file_path):
         logging.error(f"No file '{file_path}' found in working directory '{os.getcwd()}'.")
         return
     
+    # Import here to avoid circular import
+    from voice_assistant.config import Config
+    
+    # Make sure temp audio directory exists
+    os.makedirs(Config.TEMP_AUDIO_DIR, exist_ok=True)
+    
     file_extension = os.path.splitext(file_path)[1].lower()
     
     try:
@@ -99,8 +111,8 @@ def play_audio(file_path):
             try:
                 # First, try using pydub which is more reliable
                 sound = AudioSegment.from_file(file_path, format="mp3")
-                # Export to a temporary WAV file
-                temp_wav = "temp_output.wav"
+                # Export to a temporary WAV file in the temp directory
+                temp_wav = os.path.join(Config.TEMP_AUDIO_DIR, "temp_output.wav")
                 sound.export(temp_wav, format="wav")
                 # Play the WAV file
                 play_audio(temp_wav)
@@ -146,6 +158,12 @@ def play_audio_chunks(chunk_files):
     """
     logging.info(f"Playing {len(chunk_files)} audio chunks sequentially")
     
+    # Import here to avoid circular import
+    from voice_assistant.config import Config
+    
+    # Make sure temp audio directory exists
+    os.makedirs(Config.TEMP_AUDIO_DIR, exist_ok=True)
+    
     try:
         for i, file_path in enumerate(chunk_files):
             logging.info(f"Playing chunk {i+1}/{len(chunk_files)}: {file_path}")
@@ -180,7 +198,7 @@ def play_audio_chunks(chunk_files):
             elif file_extension == '.mp3':
                 # Convert MP3 to WAV then play
                 sound = AudioSegment.from_file(file_path, format="mp3")
-                temp_wav = f"temp_{i}.wav"
+                temp_wav = os.path.join(Config.TEMP_AUDIO_DIR, f"temp_{i}.wav")
                 sound.export(temp_wav, format="wav")
                 
                 # Play the temp WAV file

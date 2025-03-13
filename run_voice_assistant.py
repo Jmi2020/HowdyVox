@@ -79,8 +79,8 @@ def main():
             # Append the assistant's response to the chat history
             chat_history.append({"role": "assistant", "content": response_text})
 
-            # For Kokoro, always use WAV output
-            output_file = 'output.wav'
+            # For Kokoro, always use WAV output from the config
+            output_file = Config.OUTPUT_AUDIO
 
             # Get the API key for TTS (will be None for Kokoro)
             tts_api_key = get_tts_api_key()

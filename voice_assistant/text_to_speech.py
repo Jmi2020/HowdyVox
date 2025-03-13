@@ -131,6 +131,9 @@ def _generate_audio_chunks_worker(chunks, file_base, output_format, model, local
             else:
                 model_path = local_model_path
         
+        # Make sure temp audio directory exists
+        os.makedirs(Config.TEMP_AUDIO_DIR, exist_ok=True)
+        
         # Initialize the Kokoro model and suppress warnings
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning)
@@ -144,7 +147,8 @@ def _generate_audio_chunks_worker(chunks, file_base, output_format, model, local
             if not chunk.strip():  # Skip empty chunks
                 continue
                 
-            chunk_file = f"{file_base}_chunk_{i}{output_format}"
+            # Create chunk file path in the temp audio directory
+            chunk_file = os.path.join(Config.TEMP_AUDIO_DIR, f"{os.path.basename(file_base)}_chunk_{i}{output_format}")
             
             try:
                 # Generate audio for this chunk
@@ -171,7 +175,7 @@ def _generate_audio_chunks_worker(chunks, file_base, output_format, model, local
                     if not subchunk.strip():
                         continue
                     subchunk = subchunk.strip() + "."
-                    subchunk_file = f"{file_base}_chunk_{i}_{j}{output_format}"
+                    subchunk_file = os.path.join(Config.TEMP_AUDIO_DIR, f"{os.path.basename(file_base)}_chunk_{i}_{j}{output_format}")
                     try:
                         samples, sample_rate = kokoro.create(
                             subchunk, 
@@ -219,6 +223,9 @@ def _generate_audio_chunks(chunks, file_base, output_format, model, local_model_
         else:
             model_path = local_model_path
     
+    # Make sure temp audio directory exists
+    os.makedirs(Config.TEMP_AUDIO_DIR, exist_ok=True)
+    
     # Initialize the Kokoro model and suppress warnings
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning)
@@ -234,7 +241,8 @@ def _generate_audio_chunks(chunks, file_base, output_format, model, local_model_
         if not chunk.strip():  # Skip empty chunks
             continue
             
-        chunk_file = f"{file_base}_chunk_{i}{output_format}"
+        # Create chunk file path in the temp audio directory
+        chunk_file = os.path.join(Config.TEMP_AUDIO_DIR, f"{os.path.basename(file_base)}_chunk_{i}{output_format}")
         
         try:
             # Generate audio for this chunk
@@ -259,7 +267,7 @@ def _generate_audio_chunks(chunks, file_base, output_format, model, local_model_
                 if not subchunk.strip():
                     continue
                 subchunk = subchunk.strip() + "."
-                subchunk_file = f"{file_base}_chunk_{i}_{j}{output_format}"
+                subchunk_file = os.path.join(Config.TEMP_AUDIO_DIR, f"{os.path.basename(file_base)}_chunk_{i}_{j}{output_format}")
                 try:
                     samples, sample_rate = kokoro.create(
                         subchunk, 
