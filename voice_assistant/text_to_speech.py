@@ -1,15 +1,14 @@
 # voice_assistant/text_to_speech.py
 import logging
-import subprocess
 import os
 import soundfile as sf
 import warnings
 import nltk
 import re
-import queue
 import threading
-from kokoro_onnx import Kokoro
+import queue
 from voice_assistant.config import Config
+from voice_assistant.kokoro_manager import KokoroManager
 
 # Initialize NLTK if needed
 try:
@@ -22,9 +21,16 @@ class WordsCountMismatchFilter(logging.Filter):
     def filter(self, record):
         return "words count mismatch" not in record.getMessage()
 
-def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, local_model_path:str=None, stream=True):
+# Global queue for passing chunks between threads
+chunk_queue = queue.Queue()
+
+# Flag to signal generation is complete
+generation_complete = threading.Event()
+
+def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, local_model_path:str=None):
     """
-    Convert text to speech using Kokoro ONNX model with text chunking for long responses.
+    Convert text to speech using persistent Kokoro ONNX model instance.
+    Returns ONLY the first chunk immediately for fast response time, and puts the rest in a queue.
     
     Args:
     model (str): Should always be 'kokoro'.
@@ -32,258 +38,146 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
     text (str): The text to convert to speech.
     output_file_path (str): The path to save the generated speech audio file.
     local_model_path (str): Optional custom voice model path.
-    stream (bool): If True, enables streaming mode to yield chunks as they're generated.
     
     Returns:
-    tuple: (bool, list or queue) where bool indicates success and second value is either:
-           - A list of chunk file paths if stream=False
-           - A queue that will receive chunk paths as they're generated if stream=True
+    tuple: (bool, str) where bool indicates success and str is the path to the first chunk file
     """
+    # Reset the generation complete flag
+    generation_complete.clear()
     
-    # Apply the filter to suppress words count mismatch warnings
+    # Apply the filter to suppress specific warnings
     for handler in logging.root.handlers:
         handler.addFilter(WordsCountMismatchFilter())
     
-    # If streaming is enabled, use a queue to manage chunks
-    chunk_queue = queue.Queue() if stream else None
+    # Clear the queue of any pending chunks
+    while not chunk_queue.empty():
+        try:
+            chunk_queue.get_nowait()
+        except queue.Empty:
+            break
     
     try:
-        # Delete existing output file if it exists
-        if os.path.exists(output_file_path):
-            try:
-                os.remove(output_file_path)
-                logging.info(f"Removed existing file: {output_file_path}")
-            except Exception as e:
-                logging.warning(f"Could not remove existing file {output_file_path}: {e}")
-        
         if model == "kokoro":
-            # Ensure the output path is accessible
-            output_dir = os.path.dirname(output_file_path)
-            if output_dir and not os.path.exists(output_dir):
-                os.makedirs(output_dir)
+            # Create audio directory if it doesn't exist
+            os.makedirs("temp/audio", exist_ok=True)
             
             # Get file extension
-            file_base, file_ext = os.path.splitext(output_file_path)
+            file_base = "temp/audio/output"
+            file_ext = os.path.splitext(output_file_path)[1]
+            output_format = '.wav'  # Always use WAV for better compatibility
             
-            # Use WAV format
-            if file_ext.lower() == '.mp3':
-                # Change the extension to .wav
-                output_format = '.wav'
-            else:
-                output_format = file_ext
-            
-            # Split text into manageable chunks to avoid phoneme limit
-            chunks = split_text_into_chunks(text)
+            # Split text into manageable chunks
+            chunks = split_text_into_chunks(text, max_chars=200)
             logging.info(f"Split text into {len(chunks)} chunks")
             
-            if stream:
-                # Start a thread to generate chunks in the background
-                generator_thread = threading.Thread(
-                    target=_generate_audio_chunks_worker,
-                    args=(chunks, file_base, output_format, model, local_model_path, chunk_queue)
-                )
-                generator_thread.daemon = True
-                generator_thread.start()
-                
-                # Return the chunk queue for the main thread to consume from
-                return True, chunk_queue
-            else:
-                # Traditional approach - generate all chunks and return the list
-                chunk_files = _generate_audio_chunks(chunks, file_base, output_format, model, local_model_path)
-                
-                if chunk_files:
-                    return True, chunk_files
-                else:
-                    logging.error("Failed to generate any audio chunks")
-                    return False, []
-        else:
-            raise ValueError("Only Kokoro is supported for text-to-speech")
-        
-    except Exception as e:
-        logging.error(f"Failed to convert text to speech: {e}")
-        if stream:
-            # Signal that generation has completed with an error
-            chunk_queue.put(None)
-        return False, [] if not stream else chunk_queue
-
-def _generate_audio_chunks_worker(chunks, file_base, output_format, model, local_model_path, chunk_queue):
-    """
-    Worker function that generates audio chunks and puts them in a queue.
-    
-    Args:
-    chunks (list): List of text chunks to process.
-    file_base (str): Base filename for output files.
-    output_format (str): File extension to use.
-    model (str): Model name.
-    local_model_path (str): Custom model path.
-    chunk_queue (queue.Queue): Queue to put generated chunk paths into.
-    """
-    try:
-        # Initialize the Kokoro model
-        model_path = "kokoro-v1.0.onnx"
-        voices_path = "voices-v1.0.bin"
-        
-        # If custom model paths are provided, use them
-        if local_model_path:
-            if os.path.isdir(local_model_path):
-                model_path = os.path.join(local_model_path, "kokoro-v1.0.onnx")
-                voices_path = os.path.join(local_model_path, "voices-v1.0.bin")
-            else:
-                model_path = local_model_path
-        
-        # Make sure temp audio directory exists
-        os.makedirs(Config.TEMP_AUDIO_DIR, exist_ok=True)
-        
-        # Initialize the Kokoro model and suppress warnings
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            kokoro = Kokoro(model_path, voices_path)
-        
-        # Voice model to use
-        voice_model = Config.KOKORO_VOICE
-        
-        # Generate audio for each chunk
-        for i, chunk in enumerate(chunks):
-            if not chunk.strip():  # Skip empty chunks
-                continue
-                
-            # Create chunk file path in the temp audio directory
-            chunk_file = os.path.join(Config.TEMP_AUDIO_DIR, f"{os.path.basename(file_base)}_chunk_{i}{output_format}")
+            # Get the persistent Kokoro model instance
+            kokoro = KokoroManager.get_instance(local_model_path=local_model_path)
+            
+            # Voice model to use
+            voice_model = Config.KOKORO_VOICE
+            
+            # If no chunks, return failure
+            if not chunks or not chunks[0].strip():
+                return False, None
+            
+            # Generate ONLY the first chunk in the main thread
+            first_chunk = chunks[0]
+            first_chunk_file = f"{file_base}_chunk_0{output_format}"
             
             try:
-                # Generate audio for this chunk
+                # Generate audio for first chunk
                 samples, sample_rate = kokoro.create(
-                    chunk, 
+                    first_chunk, 
                     voice=voice_model, 
                     speed=1.0, 
                     lang="en-us"
                 )
                 
-                # Save the audio file for this chunk
-                sf.write(chunk_file, samples, sample_rate)
-                logging.info(f"Generated chunk {i+1}/{len(chunks)}: {chunk_file}")
+                # Save the audio file
+                sf.write(first_chunk_file, samples, sample_rate)
+                logging.info(f"Generated chunk 1/{len(chunks)}: {first_chunk_file}")
                 
-                # Add the chunk to the queue for immediate playback
-                chunk_queue.put(chunk_file)
-                
-            except Exception as e:
-                logging.error(f"Error generating audio for chunk {i+1}: {str(e)}")
-                logging.error(f"Problematic text: {chunk}")
-                # Try with an even smaller chunk
-                subchunks = re.split(r'[.!?]+', chunk)
-                for j, subchunk in enumerate(subchunks):
-                    if not subchunk.strip():
-                        continue
-                    subchunk = subchunk.strip() + "."
-                    subchunk_file = os.path.join(Config.TEMP_AUDIO_DIR, f"{os.path.basename(file_base)}_chunk_{i}_{j}{output_format}")
+                # Start a background thread to generate the rest of the chunks
+                def generate_remaining_chunks():
                     try:
-                        samples, sample_rate = kokoro.create(
-                            subchunk, 
-                            voice=voice_model, 
-                            speed=1.0, 
-                            lang="en-us"
-                        )
-                        sf.write(subchunk_file, samples, sample_rate)
-                        chunk_queue.put(subchunk_file)
-                        logging.info(f"Generated subchunk {j+1}: {subchunk_file}")
-                    except Exception as e2:
-                        logging.error(f"Failed on subchunk too: {str(e2)}")
-        
-        # Signal that all chunks have been generated
-        chunk_queue.put(None)  # None signals end of generation
+                        # Process each remaining chunk
+                        for i, chunk in enumerate(chunks[1:], start=1):
+                            if not chunk.strip():
+                                continue
+                                
+                            chunk_file = f"{file_base}_chunk_{i}{output_format}"
+                            
+                            try:
+                                # Generate audio for this chunk
+                                samples, sample_rate = kokoro.create(
+                                    chunk, 
+                                    voice=voice_model, 
+                                    speed=1.0, 
+                                    lang="en-us"
+                                )
+                                
+                                # Save the audio file
+                                sf.write(chunk_file, samples, sample_rate)
+                                
+                                # Add this chunk to the queue
+                                chunk_queue.put(chunk_file)
+                                logging.info(f"Generated chunk {i+1}/{len(chunks)}: {chunk_file}")
+                                
+                            except Exception as e:
+                                logging.error(f"Error generating chunk {i+1}: {str(e)}")
+                    except Exception as e:
+                        logging.error(f"Error in background generation: {str(e)}")
+                    finally:
+                        # Signal that generation is complete
+                        generation_complete.set()
+                
+                # Start the background thread if there are more chunks
+                if len(chunks) > 1:
+                    thread = threading.Thread(target=generate_remaining_chunks)
+                    thread.daemon = True
+                    thread.start()
+                else:
+                    # If only one chunk, signal completion
+                    generation_complete.set()
+                
+                # Return success and the path to the first chunk
+                return True, first_chunk_file
+            
+            except Exception as e:
+                logging.error(f"Error generating first chunk: {str(e)}")
+                generation_complete.set()
+                return False, None
+                
+        else:
+            raise ValueError("Only Kokoro is supported for text-to-speech")
             
     except Exception as e:
-        logging.error(f"Worker thread error: {str(e)}")
-        # Signal error
-        chunk_queue.put(None)
+        logging.error(f"Failed to convert text to speech: {e}")
+        generation_complete.set()
+        return False, None
 
-def _generate_audio_chunks(chunks, file_base, output_format, model, local_model_path):
+def get_next_chunk():
     """
-    Generate audio for all chunks sequentially.
-    
-    Args:
-    chunks (list): List of text chunks to process.
-    file_base (str): Base filename for output files.
-    output_format (str): File extension to use.
-    model (str): Model name.
-    local_model_path (str): Custom model path.
+    Get the next chunk from the queue.
     
     Returns:
-    list: List of generated audio file paths.
+    str or None: Path to the next chunk file, or None if no more chunks
     """
-    # Initialize the Kokoro model
-    model_path = "kokoro-v1.0.onnx"
-    voices_path = "voices-v1.0.bin"
-    
-    # If custom model paths are provided, use them
-    if local_model_path:
-        if os.path.isdir(local_model_path):
-            model_path = os.path.join(local_model_path, "kokoro-v1.0.onnx")
-            voices_path = os.path.join(local_model_path, "voices-v1.0.bin")
+    try:
+        if not chunk_queue.empty():
+            return chunk_queue.get_nowait()
+        elif generation_complete.is_set():
+            return None
         else:
-            model_path = local_model_path
-    
-    # Make sure temp audio directory exists
-    os.makedirs(Config.TEMP_AUDIO_DIR, exist_ok=True)
-    
-    # Initialize the Kokoro model and suppress warnings
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=UserWarning)
-        kokoro = Kokoro(model_path, voices_path)
-    
-    # Voice model to use
-    voice_model = Config.KOKORO_VOICE
-    logging.info(f"Generating speech using kokoro_onnx with voice: {voice_model}")
-    
-    # Generate audio for each chunk
-    chunk_files = []
-    for i, chunk in enumerate(chunks):
-        if not chunk.strip():  # Skip empty chunks
-            continue
-            
-        # Create chunk file path in the temp audio directory
-        chunk_file = os.path.join(Config.TEMP_AUDIO_DIR, f"{os.path.basename(file_base)}_chunk_{i}{output_format}")
-        
-        try:
-            # Generate audio for this chunk
-            samples, sample_rate = kokoro.create(
-                chunk, 
-                voice=voice_model, 
-                speed=1.0, 
-                lang="en-us"
-            )
-            
-            # Save the audio file for this chunk
-            sf.write(chunk_file, samples, sample_rate)
-            chunk_files.append(chunk_file)
-            logging.info(f"Generated chunk {i+1}/{len(chunks)}: {chunk_file}")
-            
-        except Exception as e:
-            logging.error(f"Error generating audio for chunk {i+1}: {str(e)}")
-            logging.error(f"Problematic text: {chunk}")
-            # Try with an even smaller chunk
-            subchunks = re.split(r'[.!?]+', chunk)
-            for j, subchunk in enumerate(subchunks):
-                if not subchunk.strip():
-                    continue
-                subchunk = subchunk.strip() + "."
-                subchunk_file = os.path.join(Config.TEMP_AUDIO_DIR, f"{os.path.basename(file_base)}_chunk_{i}_{j}{output_format}")
-                try:
-                    samples, sample_rate = kokoro.create(
-                        subchunk, 
-                        voice=voice_model, 
-                        speed=1.0, 
-                        lang="en-us"
-                    )
-                    sf.write(subchunk_file, samples, sample_rate)
-                    chunk_files.append(subchunk_file)
-                    logging.info(f"Generated subchunk {j+1}: {subchunk_file}")
-                except Exception as e2:
-                    logging.error(f"Failed on subchunk too: {str(e2)}")
-    
-    return chunk_files
+            # Wait for a chunk to be added to the queue, with a timeout
+            try:
+                return chunk_queue.get(timeout=0.5)
+            except queue.Empty:
+                return None
+    except:
+        return None
 
-def split_text_into_chunks(text, max_chars=250):
+def split_text_into_chunks(text, max_chars=200):
     """
     Split text into smaller chunks to avoid phoneme limit issues.
     
