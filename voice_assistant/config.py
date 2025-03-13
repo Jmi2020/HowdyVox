@@ -23,6 +23,7 @@ class Config:
 
     # Kokoro TTS settings
     KOKORO_VOICE = 'am_michael'  # Default to the cowboy voice
+    KOKORO_SPEED = 1.2  # Playback speed (>1 is faster)
     
     # LLM Selection
     OLLAMA_LLM = "llama3:8b"

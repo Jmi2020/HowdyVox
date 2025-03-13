@@ -28,17 +28,6 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
                  calibration_duration=1):
     """
     Record audio from the microphone and save it as an MP3 file.
-    
-    Args:
-    file_path (str): The path to save the recorded audio file.
-    timeout (int): Maximum time to wait for a phrase to start (in seconds).
-    phrase_time_limit (int): Maximum time for the phrase to be recorded (in seconds).
-    retries (int): Number of retries if recording fails.
-    energy_threshold (int): Energy threshold for considering whether a given chunk of audio is speech or not.
-    pause_threshold (float): How much silence the recognizer interprets as the end of a phrase (in seconds).
-    phrase_threshold (float): Minimum length of a phrase to consider for recording (in seconds).
-    dynamic_energy_threshold (bool): Whether to enable dynamic energy threshold adjustment.
-    calibration_duration (float): Duration of the ambient noise calibration (in seconds).
     """
     recognizer = get_recognizer()
     recognizer.energy_threshold = energy_threshold
@@ -72,7 +61,7 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
 
 def play_audio(file_path):
     """
-    Play an audio file using pygame.
+    Play a single audio file using pygame.
     
     Args:
     file_path (str): The path to the audio file to play.
@@ -144,3 +133,89 @@ def play_audio(file_path):
             logging.error(f"Unsupported audio file format: {file_extension}")
     except Exception as e:
         logging.error(f"Failed to play audio: {str(e)}")
+
+def play_audio_chunks(chunk_files):
+    """
+    Play multiple audio files in sequence, waiting for each to complete.
+    
+    Args:
+    chunk_files (list): List of paths to audio chunk files to play in sequence.
+    
+    Returns:
+    bool: True if playback was successful, False otherwise.
+    """
+    logging.info(f"Playing {len(chunk_files)} audio chunks sequentially")
+    
+    try:
+        for i, file_path in enumerate(chunk_files):
+            logging.info(f"Playing chunk {i+1}/{len(chunk_files)}: {file_path}")
+            
+            if not os.path.exists(file_path):
+                logging.error(f"Chunk file not found: {file_path}")
+                continue
+                
+            file_extension = os.path.splitext(file_path)[1].lower()
+            
+            if file_extension == '.wav':
+                # Play WAV files using the wave and pyaudio modules
+                wf = wave.open(file_path, 'rb')
+                p = pyaudio.PyAudio()
+                
+                stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
+                                channels=wf.getnchannels(),
+                                rate=wf.getframerate(),
+                                output=True)
+                
+                chunk_size = 1024
+                data = wf.readframes(chunk_size)
+                
+                while data:
+                    stream.write(data)
+                    data = wf.readframes(chunk_size)
+                
+                stream.stop_stream()
+                stream.close()
+                p.terminate()
+                wf.close()
+            elif file_extension == '.mp3':
+                # Convert MP3 to WAV then play
+                sound = AudioSegment.from_file(file_path, format="mp3")
+                temp_wav = f"temp_{i}.wav"
+                sound.export(temp_wav, format="wav")
+                
+                # Play the temp WAV file
+                wf = wave.open(temp_wav, 'rb')
+                p = pyaudio.PyAudio()
+                
+                stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
+                                channels=wf.getnchannels(),
+                                rate=wf.getframerate(),
+                                output=True)
+                
+                chunk_size = 1024
+                data = wf.readframes(chunk_size)
+                
+                while data:
+                    stream.write(data)
+                    data = wf.readframes(chunk_size)
+                
+                stream.stop_stream()
+                stream.close()
+                p.terminate()
+                wf.close()
+                
+                # Clean up temp file
+                try:
+                    os.remove(temp_wav)
+                except:
+                    pass
+            else:
+                logging.error(f"Unsupported audio format: {file_extension}")
+                
+            # Small delay between chunks for natural pauses
+            time.sleep(0.25)
+            
+        return True
+    except Exception as e:
+        logging.error(f"Error in sequential playback: {str(e)}")
+        return False
