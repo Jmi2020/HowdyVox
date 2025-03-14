@@ -26,7 +26,7 @@ class Config:
     KOKORO_SPEED = 1.2  # Playback speed (>1 is faster)
     
     # LLM Selection
-    OLLAMA_LLM = "hf.co/unsloth/Phi-4-mini-instruct-GGUF"
+    OLLAMA_LLM = "hf.co/unsloth/gemma-3-4b-it-GGUF:latest"
     
     # Path for local models
     LOCAL_MODEL_PATH = os.getenv("LOCAL_MODEL_PATH")
