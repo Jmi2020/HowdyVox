@@ -177,7 +177,7 @@ def get_next_chunk():
     except:
         return None
 
-def split_text_into_chunks(text, max_chars=200):
+def split_text_into_chunks(text, max_chars=150):
     """
     Split text into smaller chunks to avoid phoneme limit issues.
     
