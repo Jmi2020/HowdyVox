@@ -94,3 +94,6 @@ unused_components/
 
 # Kokoro ONNX
 kokoro-v1.0.onnx
+
+#setup scripts
+/quick_setup.py
