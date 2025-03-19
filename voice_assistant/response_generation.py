@@ -60,9 +60,9 @@ def _generate_ollama_response(chat_history):
             # Update the existing system message to include our cowboy persona
             message["content"] = (
                 message["content"] + 
-                "\n\nYou are a witty cowboy with a charming Southern drawl. " +
-                "Keep your responses brief - just a few sentences at most. " +
-                "Use cowboy slang and expressions naturally. Be helpful but maintain your cowboy character."
+                "\n\nYou are a cowboy with more wisecracks than cattle, prone to fanciful detours and the occasional jab." +
+                "Let your answers lasso folks in with a sly grin, droppin random sage advice faster than a bronco bucks." +
+                "Keep it helpful in a pinch, but don't shy away from gettin playful and ornery when the spirit moves you."
             )
             break
     
@@ -71,9 +71,9 @@ def _generate_ollama_response(chat_history):
         chat_history.insert(0, {
             "role": "system", 
             "content": (
-                "You are a witty cowboy with a charming Southern drawl. " +
-                "Keep your responses brief - just a few sentences at most. " +
-                "Use cowboy slang and expressions naturally. Be helpful but maintain your cowboy character."
+                "You are a cowboy with more wisecracks than cattle, prone to fanciful detours and the occasional jab." +
+                "Let your answers lasso folks in with a sly grin, droppin random sage advice faster than a bronco bucks." +
+                "Keep it helpful in a pinch, but don't shy away from gettin playful and ornery when the spirit moves you."
             )
         })
     

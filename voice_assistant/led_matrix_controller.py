@@ -105,15 +105,52 @@ class LEDMatrixController:
             with self.lock:
                 # URL encode the text to handle special characters
                 encoded_text = quote(text)
-                response = requests.post(self.speak_url, data={"text": encoded_text}, timeout=2.0)
                 
-                if response.status_code == 200:
-                    logging.info(f"{Fore.CYAN}LED Matrix set to speaking mode with text: {text[:30]}...{Fore.RESET}")
-                    self.current_state = "speaking"
-                    return True
-                else:
-                    logging.warning(f"{Fore.YELLOW}Failed to set LED Matrix to speaking mode. Status code: {response.status_code}{Fore.RESET}")
-                    return False
+                # Log that we're sending the full text
+                logging.debug(f"{Fore.CYAN}Sending full text to LED Matrix: {text}{Fore.RESET}")
+                
+                # Try the POST method first (may be what the ESP32 expects)
+                try:
+                    logging.info(f"{Fore.CYAN}Attempting to send text to LED Matrix using POST method{Fore.RESET}")
+                    response = requests.post(self.speak_url, data={"text": encoded_text}, timeout=2.0)
+                    
+                    if response.status_code == 200:
+                        text_length = len(text)
+                        preview = f"{text[:50]}{'...' if text_length > 50 else ''}"
+                        logging.info(f"{Fore.CYAN}LED Matrix set to speaking mode with text ({text_length} chars): {preview}{Fore.RESET}")
+                        self.current_state = "speaking"
+                        return True
+                    else:
+                        logging.warning(f"{Fore.YELLOW}POST method failed with status code: {response.status_code}{Fore.RESET}")
+                
+                except Exception as e:
+                    logging.warning(f"{Fore.YELLOW}POST method failed: {e}{Fore.RESET}")
+                
+                # If POST failed, try the direct state change method 
+                # (The ESP32 might only support /state endpoint)
+                try:
+                    logging.info(f"{Fore.CYAN}Trying alternative method using state endpoint{Fore.RESET}")
+                    # Use the regular state endpoint with 'speaking' state and text as parameter
+                    response = requests.post(self.state_url, data={"state": "speaking", "text": encoded_text}, timeout=2.0)
+                    
+                    if response.status_code == 200:
+                        text_length = len(text)
+                        preview = f"{text[:50]}{'...' if text_length > 50 else ''}"
+                        logging.info(f"{Fore.CYAN}LED Matrix set to speaking mode with state endpoint ({text_length} chars): {preview}{Fore.RESET}")
+                        self.current_state = "speaking"
+                        return True
+                    else:
+                        logging.warning(f"{Fore.YELLOW}State endpoint method failed with status code: {response.status_code}{Fore.RESET}")
+                        
+                except Exception as e:
+                    logging.warning(f"{Fore.YELLOW}State endpoint method failed: {e}{Fore.RESET}")
+                
+                # If all methods failed, log the error details and return failure
+                logging.error(f"{Fore.RED}All methods to set LED Matrix to speaking mode failed.{Fore.RESET}")
+                logging.error(f"{Fore.RED}Check that the ESP32 has the correct endpoints implemented.{Fore.RESET}")
+                logging.error(f"{Fore.RED}Expected endpoints: {self.speak_url} or {self.state_url} with speaking state{Fore.RESET}")
+                return False
+                
         except Exception as e:
             logging.error(f"{Fore.RED}Error setting LED Matrix to speaking mode: {e}{Fore.RESET}")
             return False

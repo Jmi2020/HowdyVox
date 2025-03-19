@@ -272,7 +272,7 @@ def main():
             logging.info(Fore.GREEN + "You said: " + user_input + Fore.RESET)
 
             # Check if the user wants to exit the program (complete shutdown)
-            if "goodbye" in user_input.lower() or "arrivederci" in user_input.lower():
+            if "shut down howdy program" in user_input.lower() or "shut down the howdy program" in user_input.lower() or "code phrase exit" in user_input.lower():
                 print(Fore.YELLOW + "Goodbye, partner! Happy trails!" + Fore.RESET)
                 # Set matrix to waiting state before exiting
                 if led_matrix:
