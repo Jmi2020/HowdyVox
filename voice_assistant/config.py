@@ -39,6 +39,10 @@ class Config:
     INPUT_AUDIO = os.path.join(TEMP_AUDIO_DIR, "input.mp3")
     OUTPUT_AUDIO = os.path.join(TEMP_AUDIO_DIR, "output.wav")
 
+    # ESP32-S3 LED Matrix Configuration
+    ESP32_IP = os.getenv("ESP32_IP", None)  # IP address of the ESP32-S3
+    USE_LED_MATRIX = ESP32_IP is not None   # Enable LED matrix if IP is provided
+
     @staticmethod
     def validate_config():
         """

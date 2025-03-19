@@ -1,42 +1,44 @@
-annotated-types==0.6.0
-anyio==4.3.0
-certifi==2024.2.2
-charset-normalizer==3.3.2
-distro==1.9.0
-h11==0.14.0
-httpcore==1.0.5
-httpx==0.27.0
-idna==3.7
-openai==1.30.1
+# Core dependencies
+python-dotenv>=0.21.0
+colorama>=0.4.6
+pydantic>=2.7.1
+tqdm>=4.66.4
+
+# Audio processing
 PyAudio==0.2.12  # IMPORTANT: Version 0.2.14 has compatibility issues with PortAudio on macOS
-pydantic==2.7.1
-pydantic_core==2.18.2
-pygame==2.5.2
-requests==2.31.0
-setuptools==69.5.1
-sniffio==1.3.1
 SpeechRecognition==3.10.4
-tqdm==4.66.4
-typing_extensions==4.11.0
-urllib3==2.2.1
-colorama
-deepgram-sdk
-groq
-python-dotenv
-colorama
-requests
-keyboard
-elevenlabs
-fastapi
-uvicorn
-numpy 
-sounddevice 
-cartesia
-soundfile
-ollama
-pydub
-# ONNX dependencies
+pygame>=2.5.2
+sounddevice>=0.4.6
+soundfile>=0.12.1
+pydub>=0.25.1
+
+# Wake word detection
+pvporcupine>=2.2.0  # For "Hey Howdy" wake word detection
+
+# Networking and API clients
+requests>=2.31.0   # Used for FastWhisper API and ESP32 LED Matrix
+urllib3>=2.2.1
+httpx>=0.27.0
+
+# AI models
+openai>=1.30.1
+groq>=0.4.0
+deepgram-sdk>=2.11.0
+ollama>=0.1.0     # Local LLM support
+elevenlabs>=0.2.26
+cartesia>=0.3.0
+
+# Web server (for FastWhisperAPI)
+fastapi>=0.100.0
+uvicorn>=0.23.0
+
+# Data processing
+numpy>=1.24.0
+scipy>=1.10.0
+
+# ONNX for Kokoro TTS
 onnxruntime>=1.14.0
 torch>=1.13.0
-scipy>=1.10.0
-numpy>=1.24.0
+
+# Optional: keyboard for hotkeys
+keyboard>=0.13.5

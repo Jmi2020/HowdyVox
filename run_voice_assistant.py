@@ -14,6 +14,7 @@ from voice_assistant.utils import delete_file
 from voice_assistant.config import Config
 from voice_assistant.api_key_manager import get_transcription_api_key, get_response_api_key, get_tts_api_key
 from voice_assistant.kokoro_manager import KokoroManager
+from voice_assistant.led_matrix_controller import LEDMatrixController
 
 # Import the fixed wake word implementation
 from voice_assistant.wake_word import WakeWordDetector, SpeechRecognitionWakeWord, cleanup_all_detectors
@@ -30,6 +31,7 @@ stop_signal = threading.Event()
 wake_word_detector = None
 conversation_active = threading.Event()  # Flag to track if we're in an active conversation
 restart_count = 0  # Track how many times we've restarted to avoid infinite loops
+led_matrix = None  # LED Matrix controller instance
 
 def check_end_conversation(text):
     """
@@ -69,6 +71,10 @@ def handle_wake_word():
     wake_word_detected.set()
     conversation_active.set()
     
+    # Update LED matrix to show "Listening"
+    if led_matrix:
+        led_matrix.set_listening()
+    
     # Play a sound to indicate wake word detected
     try:
         play_audio("voice_samples/activate.wav")
@@ -106,6 +112,10 @@ def safe_start_wake_word_detection():
         # Reset restart count on successful start
         restart_count = 0
         
+        # Update LED matrix to "waiting" state when wake word detection is active
+        if led_matrix:
+            led_matrix.set_waiting()
+        
         return True
     except Exception as e:
         # Handle start failure
@@ -128,6 +138,10 @@ def signal_handler(sig, frame):
     print(f"\n{Fore.YELLOW}Shutting down...{Fore.RESET}")
     stop_signal.set()
     
+    # Set matrix to waiting state before exiting
+    if led_matrix:
+        led_matrix.set_waiting()
+    
     # Cleanup all wake word detectors
     cleanup_all_detectors()
     
@@ -138,12 +152,21 @@ def main():
     Main function to run the offline voice assistant with wake word detection
     and continuous conversation support.
     """
+    global led_matrix
+    
     # Set up signal handler for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
     
     # Create necessary directories
     os.makedirs("temp/audio", exist_ok=True)
     os.makedirs("voice_samples", exist_ok=True)
+    
+    # Initialize LED Matrix controller if ESP32 IP is provided
+    if hasattr(Config, 'USE_LED_MATRIX') and Config.USE_LED_MATRIX and Config.ESP32_IP:
+        logging.info(f"{Fore.CYAN}Initializing ESP32 LED Matrix controller with IP: {Config.ESP32_IP}{Fore.RESET}")
+        led_matrix = LEDMatrixController(Config.ESP32_IP)
+        # Set initial state to waiting for wake word
+        led_matrix.set_waiting()
     
     # Check if we have a notification sound, create a simple one if not
     activate_sound = "voice_samples/activate.wav"
@@ -213,6 +236,8 @@ def main():
             if conversation_active.is_set():
                 # In active conversation, give a visual indicator we're listening
                 print(Fore.GREEN + "Listening..." + Fore.RESET)
+                # Update LED matrix to "Listening" (LED state is already set in handle_wake_word)
+                # The second set_listening call was here - removed to fix duplicate updates
             
             record_audio(Config.INPUT_AUDIO)
 
@@ -249,6 +274,9 @@ def main():
             # Check if the user wants to exit the program (complete shutdown)
             if "goodbye" in user_input.lower() or "arrivederci" in user_input.lower():
                 print(Fore.YELLOW + "Goodbye, partner! Happy trails!" + Fore.RESET)
+                # Set matrix to waiting state before exiting
+                if led_matrix:
+                    led_matrix.set_waiting()
                 stop_signal.set()
                 break
                 
@@ -256,6 +284,11 @@ def main():
             if conversation_active.is_set() and check_end_conversation(user_input):
                 # End the conversation and go back to wake word mode
                 print(Fore.YELLOW + "Ending conversation. Say 'Hey Howdy' when you need me again!" + Fore.RESET)
+                
+                # Update LED matrix to "Later Space Cowboy"
+                if led_matrix:
+                    led_matrix.set_ending()
+                    # The LED matrix will auto-switch back to waiting after 10 seconds
                 
                 # Get a quick TTS response
                 success, first_chunk_file = text_to_speech(
@@ -298,6 +331,10 @@ def main():
             # Get the API key for response generation (will be None for Ollama)
             response_api_key = get_response_api_key()
 
+            # Update LED matrix to "Thinking"
+            if led_matrix:
+                led_matrix.set_thinking()
+                
             # Generate a response using Ollama
             response_text = generate_response(Config.RESPONSE_MODEL, response_api_key, chat_history, Config.LOCAL_MODEL_PATH)
             logging.info(Fore.CYAN + "Response: " + response_text + Fore.RESET)
@@ -313,6 +350,10 @@ def main():
 
             # Signal that we're starting audio processing
             playback_complete_event.clear()
+            
+            # Update LED matrix to "speaking" mode with the response text
+            if led_matrix:
+                led_matrix.set_speaking(response_text)
             
             # Get just the first chunk
             success, first_chunk_file = text_to_speech(
@@ -373,6 +414,9 @@ def main():
                         # If conversation is active, provide visual cue that we're ready for next input
                         if conversation_active.is_set():
                             print(Fore.GREEN + "Ready for your next question..." + Fore.RESET)
+                            # Update LED matrix back to "Listening" mode
+                            if led_matrix:
+                                led_matrix.set_listening()
                 
                 # Start playback thread
                 playback_thread = threading.Thread(target=play_all_chunks)
@@ -381,6 +425,9 @@ def main():
             else:
                 logging.error("Failed to generate speech")
                 playback_complete_event.set()
+                # Reset LED matrix to "Listening" in case of failure
+                if led_matrix and conversation_active.is_set():
+                    led_matrix.set_listening()
 
         except Exception as e:
             logging.error(Fore.RED + f"An error occurred: {e}" + Fore.RESET)
@@ -391,6 +438,9 @@ def main():
             time.sleep(1)
     
     # Cleanup
+    if led_matrix:
+        # Set matrix to waiting state before exiting
+        led_matrix.set_waiting()
     cleanup_all_detectors()
 
 if __name__ == "__main__":
@@ -398,9 +448,13 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print(f"\n{Fore.YELLOW}Shutting down due to keyboard interrupt...{Fore.RESET}")
+        if led_matrix:
+            led_matrix.set_waiting()
         cleanup_all_detectors()
     except Exception as e:
         print(f"\n{Fore.RED}Fatal error: {e}{Fore.RESET}")
         import traceback
         traceback.print_exc()
+        if led_matrix:
+            led_matrix.set_waiting()
         cleanup_all_detectors()

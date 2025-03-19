@@ -5,10 +5,15 @@ from fastapi.security import HTTPAuthorizationCredentials
 from faster_whisper import WhisperModel
 from constants import security, SUPPORTED_EXTENSIONS, SUPPORTED_LANGUAGES, SUPPORTED_MODELS, SUPPORTED_RESPONSE_FORMATS, SUPPORTED_TIMESTAMP_GRANULARITIES
 from logging_config import get_logger
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 logger = get_logger()
+
 def authenticate_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    correct_api_key = "dummy_api_key"  # replace with your dummy API key
+    correct_api_key = os.getenv("FASTWHISPER_API_KEY", "dummy_api_key")
     if credentials.scheme != "Bearer" or credentials.credentials != correct_api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -23,9 +28,11 @@ def authenticate_user(credentials: HTTPAuthorizationCredentials = Depends(securi
             headers={"WWW-Authenticate": "Bearer"},
         )
     return credentials.credentials
+
 def get_file_extension(filename: str) -> str:
     _, extension = os.path.splitext(filename)
     return extension[1:].lower()
+
 async def transcribe_temp_file(file: UploadFile, extension: str, model: WhisperModel, initial_prompt: str, language: str, word_timestamps: bool, vad_filter: bool, min_silence_duration_ms: int):
     temp_file = tempfile.NamedTemporaryFile(suffix=extension, delete=False)
     try:
@@ -56,6 +63,7 @@ def create_segment_data(segments: list, word_timestamps: bool):
             segment_dict["words"] = words_data
         segment_data.append(segment_dict)
     return segment_data
+
 async def process_file(file: UploadFile, model: WhisperModel, initial_prompt: str, language: str, word_timestamps: bool, vad_filter: bool,  min_silence_duration_ms: int):
     extension = get_file_extension(file.filename)
     segments, info = await transcribe_temp_file(file, extension, model, initial_prompt, language, word_timestamps, vad_filter, min_silence_duration_ms)
