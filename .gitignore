@@ -97,3 +97,6 @@ kokoro-v1.0.onnx
 
 #setup scripts
 /quick_setup.py
+
+# Test files
+VoiceBlending.txt

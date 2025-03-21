@@ -14,7 +14,7 @@ class KokoroManager:
     _instance = None
     
     @classmethod
-    def get_instance(cls, model_path="kokoro-v1.0.onnx", voices_path="voices-v1.0.bin", local_model_path=None):
+    def get_instance(cls, model_path=None, voices_path=None, local_model_path=None):
         """
         Get or initialize the Kokoro TTS model instance.
         
@@ -29,6 +29,13 @@ class KokoroManager:
         if cls._instance is None:
             logging.info("Initializing Kokoro TTS model (first-time setup)...")
             
+            # Use the models directory as default location
+            if model_path is None:
+                model_path = os.path.join("models", "kokoro-v1.0.onnx")
+            
+            if voices_path is None:
+                voices_path = os.path.join("models", "voices-v1.0.bin")
+            
             # If custom model paths are provided, use them
             if local_model_path:
                 if os.path.isdir(local_model_path):
@@ -36,6 +43,18 @@ class KokoroManager:
                     voices_path = os.path.join(local_model_path, "voices-v1.0.bin")
                 else:
                     model_path = local_model_path
+            
+            # Verify model files exist
+            if not os.path.exists(model_path):
+                logging.error(f"Model file not found at: {model_path}")
+                raise FileNotFoundError(f"Model file not found at: {model_path}")
+                
+            if not os.path.exists(voices_path):
+                logging.error(f"Voices file not found at: {voices_path}")
+                raise FileNotFoundError(f"Voices file not found at: {voices_path}")
+            
+            logging.info(f"Loading Kokoro model from: {model_path}")
+            logging.info(f"Loading Kokoro voices from: {voices_path}")
             
             # Configure ONNX Runtime using environment variables
             # Set thread count for better performance

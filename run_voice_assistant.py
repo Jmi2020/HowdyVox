@@ -5,6 +5,7 @@ import threading
 import signal
 import sys
 import gc  # For garbage collection
+import re
 from colorama import Fore, init
 from voice_assistant.audio import record_audio, play_audio
 from voice_assistant.transcription import transcribe_audio
@@ -15,6 +16,8 @@ from voice_assistant.config import Config
 from voice_assistant.api_key_manager import get_transcription_api_key, get_response_api_key, get_tts_api_key
 from voice_assistant.kokoro_manager import KokoroManager
 from voice_assistant.led_matrix_controller import LEDMatrixController
+# Import voice initializer to ensure blended voices are set up
+from voice_assistant.voice_initializer import initialize_success as voice_initialized
 
 # Import the fixed wake word implementation
 from voice_assistant.wake_word import WakeWordDetector, SpeechRecognitionWakeWord, cleanup_all_detectors
@@ -175,7 +178,7 @@ def main():
             # Try to generate a simple "activated" sound using Kokoro
             print(Fore.YELLOW + "Creating activation sound..." + Fore.RESET)
             kokoro = KokoroManager.get_instance(local_model_path=Config.LOCAL_MODEL_PATH)
-            samples, sample_rate = kokoro.create("Howdy, I'm listening!", 
+            samples, sample_rate = kokoro.create("Hey there Partner, hows it hanging?", 
                                                 voice=Config.KOKORO_VOICE, 
                                                 speed=1.0, 
                                                 lang="en-us")
@@ -279,7 +282,7 @@ def main():
                     led_matrix.set_waiting()
                 stop_signal.set()
                 break
-                
+            
             # Check if we should end the current conversation
             if conversation_active.is_set() and check_end_conversation(user_input):
                 # End the conversation and go back to wake word mode
@@ -428,7 +431,6 @@ def main():
                 # Reset LED matrix to "Listening" in case of failure
                 if led_matrix and conversation_active.is_set():
                     led_matrix.set_listening()
-
         except Exception as e:
             logging.error(Fore.RED + f"An error occurred: {e}" + Fore.RESET)
             import traceback
