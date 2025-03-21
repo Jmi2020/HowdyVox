@@ -23,7 +23,7 @@ class Config:
 
     # Kokoro TTS settings
     KOKORO_VOICE = 'Bella_michael'  # Default to the cowboy voice
-    KOKORO_SPEED = 1.2  # Playback speed (>1 is faster)
+    KOKORO_SPEED = .8  # Playback speed (>1 is faster)
     
     # LLM Selection
     OLLAMA_LLM = "hf.co/unsloth/gemma-3-4b-it-GGUF:latest"

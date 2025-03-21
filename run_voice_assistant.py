@@ -180,7 +180,7 @@ def main():
             kokoro = KokoroManager.get_instance(local_model_path=Config.LOCAL_MODEL_PATH)
             samples, sample_rate = kokoro.create("Hey there Partner, hows it hanging?", 
                                                 voice=Config.KOKORO_VOICE, 
-                                                speed=1.0, 
+                                                speed=0.8, 
                                                 lang="en-us")
             import soundfile as sf
             sf.write(activate_sound, samples, sample_rate)

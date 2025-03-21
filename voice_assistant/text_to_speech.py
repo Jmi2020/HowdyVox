@@ -89,7 +89,7 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                 samples, sample_rate = kokoro.create(
                     first_chunk, 
                     voice=voice_model, 
-                    speed=1.0, 
+                    speed=Config.KOKORO_SPEED,  # Use config value instead of hardcoded 1.0
                     lang="en-us"
                 )
                 
@@ -112,7 +112,7 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                                 samples, sample_rate = kokoro.create(
                                     chunk, 
                                     voice=voice_model, 
-                                    speed=1.0, 
+                                    speed=Config.KOKORO_SPEED,  # Use config value instead of hardcoded 1.0
                                     lang="en-us"
                                 )
                                 
