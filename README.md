@@ -10,6 +10,7 @@ Howdy, partner! I'm your friendly neighborhood voice assistant with a bit o' cow
 - **Fast Local Speech Recognition**: Powered by FastWhisperAPI
 - **Local LLM Support**: Integrated with Ollama for text generation (works with Gemma 3 or any model of your choice)
 - **Continuous Conversation**: Chat naturally without saying the wake word for each interaction
+- **Voice Blending**: Create custom voices by blending multiple voice styles together (see [Voice Blending](#voice-blending-))
 
 ## Prerequisites ✅
 
@@ -100,6 +101,23 @@ TTS_MODEL = 'kokoro'                    # Local TTS with cowboy voice
 KOKORO_VOICE = 'am_michael'             # Default cowboy voice
 OLLAMA_LLM = "hf.co/unsloth/gemma-3-4b-it-GGUF:latest"  # Default LLM model
 ```
+
+## Voice Blending 🎭
+
+HowdyTTS supports voice blending, allowing you to create custom voices by combining multiple voice styles with different ratios. This lets you fine-tune the perfect voice for your assistant.
+
+### Quick Example
+```bash
+# Create a blend of two voices (40% Bella, 60% Michael)
+python configure_blended_voice.py --name "my_custom_voice" --voices "af_bella:40,am_michael:60"
+
+# Update config.py to use this voice
+# KOKORO_VOICE = 'my_custom_voice'
+```
+
+Voice blending opens up endless possibilities for customization - from subtle voice tweaks to completely new voice personalities.
+
+For detailed instructions and advanced usage, see the [VoiceBlend.md](VoiceBlend.md) guide.
 
 ## Testing the Setup 🧪
 
