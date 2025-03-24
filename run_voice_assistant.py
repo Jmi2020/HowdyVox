@@ -74,11 +74,30 @@ def handle_wake_word():
     wake_word_detected.set()
     conversation_active.set()
     
-    # Update LED matrix to show "Listening"
+    # Play activation sound first, before updating LED matrix
+    try:
+        # First, check if the activation sound exists
+        if os.path.exists("voice_samples/activate.wav"):
+            # Get the duration of the audio file
+            import wave
+            with wave.open("voice_samples/activate.wav", 'rb') as wf:
+                frames = wf.getnframes()
+                rate = wf.getframerate()
+                duration = frames / float(rate)
+                
+            # Play the activation sound
+            play_audio("voice_samples/activate.wav")
+            
+            # Wait for the activation sound to finish (add a small buffer)
+            logging.info(f"Waiting for activation sound to complete ({duration:.2f}s)")
+            time.sleep(duration + 0.2)  # Reduced buffer from 0.5s to 0.2s
+            logging.info("Activation sound completed, now listening for user input")
+    except Exception as e:
+        logging.info(f"Activation sound error: {e}, continuing without it")
+        
+    # Update LED matrix to show "Listening" - now happens after activation sound
     if led_matrix:
         led_matrix.set_listening()
-    
-    # Don't play the activation sound here - we'll do it in the main loop before recording
 
 def safe_start_wake_word_detection():
     """Safely start a new wake word detection with error handling"""
@@ -230,31 +249,10 @@ def main():
                 logging.info("Audio playback complete, continuing")
             
             # Check if a new conversation is starting (wake word just detected)
-            # Only play activation sound for new conversations, not continuing ones
             if wake_word_detected.is_set():
                 # Clear the wake word detected flag for next time
                 wake_word_detected.clear()
-                
-                # Only play activation sound when starting a new conversation
-                try:
-                    # First, check if the activation sound exists
-                    if os.path.exists("voice_samples/activate.wav"):
-                        # Get the duration of the audio file
-                        import wave
-                        with wave.open("voice_samples/activate.wav", 'rb') as wf:
-                            frames = wf.getnframes()
-                            rate = wf.getframerate()
-                            duration = frames / float(rate)
-                            
-                        # Play the activation sound
-                        play_audio("voice_samples/activate.wav")
-                        
-                        # Wait for the activation sound to finish (add a small buffer)
-                        logging.info(f"Waiting for activation sound to complete ({duration:.2f}s)")
-                        time.sleep(duration + 0.5)  # Add a 0.5s buffer to ensure playback is complete
-                        logging.info("Activation sound completed, now listening for user input")
-                except Exception as e:
-                    logging.info(f"Activation sound error: {e}, continuing without it")
+                # Activation sound is now handled in the handle_wake_word()
             
             # Record audio from the microphone and save it
             if conversation_active.is_set():
