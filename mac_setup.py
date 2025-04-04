@@ -22,9 +22,38 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
-from tqdm import tqdm
 import logging
 from colorama import Fore, Style, init
+
+# Try to import tqdm, but provide a fallback if it's not available
+try:
+    from tqdm import tqdm
+    TQDM_AVAILABLE = True
+except ImportError:
+    TQDM_AVAILABLE = False
+    print("Note: tqdm module not found. Using simple progress indicator.")
+    # Simple progress indicator fallback class
+    class SimpleProgress:
+        def __init__(self, **kwargs):
+            self.total = kwargs.get('total', 100)
+            self.last_percent = -1
+            
+        def update(self, n):
+            if self.total:
+                percent = int(n / self.total * 100)
+                if percent > self.last_percent:
+                    sys.stdout.write(f"\r{percent}% [{percent*'#'}{(100-percent)*'.'}]")
+                    sys.stdout.flush()
+                    self.last_percent = percent
+        
+        def __enter__(self):
+            return self
+            
+        def __exit__(self, *args):
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+    
+    tqdm = SimpleProgress
 
 # Initialize colorama
 init(autoreset=True)
