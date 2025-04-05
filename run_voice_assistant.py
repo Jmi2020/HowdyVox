@@ -35,6 +35,7 @@ wake_word_detector = None
 conversation_active = threading.Event()  # Flag to track if we're in an active conversation
 restart_count = 0  # Track how many times we've restarted to avoid infinite loops
 led_matrix = None  # LED Matrix controller instance
+activation_sound_playing = threading.Event()  # Flag to track if activation sound is playing
 
 def check_end_conversation(text):
     """
@@ -69,6 +70,8 @@ def check_end_conversation(text):
 
 def handle_wake_word():
     """Callback function when wake word is detected"""
+    # No need for global declaration as it's already declared at module level
+    
     logging.info("Wake word detected, activating conversation mode")
     # Set the events to trigger conversation mode
     wake_word_detected.set()
@@ -78,6 +81,9 @@ def handle_wake_word():
     try:
         # First, check if the activation sound exists
         if os.path.exists("voice_samples/activate.wav"):
+            # Signal that activation sound is playing
+            activation_sound_playing.set()
+            
             # Get the duration of the audio file
             import wave
             with wave.open("voice_samples/activate.wav", 'rb') as wf:
@@ -94,6 +100,9 @@ def handle_wake_word():
             logging.info("Activation sound completed, now listening for user input")
     except Exception as e:
         logging.info(f"Activation sound error: {e}, continuing without it")
+    finally:
+        # Always clear the flag when we're done, whether there was an error or not
+        activation_sound_playing.clear()
         
     # Update LED matrix to show "Listening" - now happens after activation sound
     if led_matrix:
@@ -221,6 +230,9 @@ def main():
     # Flag to track if we're currently playing audio
     playback_complete_event = threading.Event()
     playback_complete_event.set()  # Initially set to True since no playback is happening
+    
+    # Ensure activation sound flag is initially cleared
+    activation_sound_playing.clear()  # Initially clear since no activation sound is playing
 
     # Start the wake word detection
     if not safe_start_wake_word_detection():
@@ -253,6 +265,12 @@ def main():
                 # Clear the wake word detected flag for next time
                 wake_word_detected.clear()
                 # Activation sound is now handled in the handle_wake_word()
+                # Wait for activation sound to complete before recording
+                if activation_sound_playing.is_set():
+                    logging.info("Waiting for activation sound to complete before recording...")
+                    while activation_sound_playing.is_set():
+                        time.sleep(0.1)
+                    logging.info("Activation sound completed, now recording user input")
             
             # Record audio from the microphone and save it
             if conversation_active.is_set():

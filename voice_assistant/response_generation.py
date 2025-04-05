@@ -28,7 +28,7 @@ def generate_response(model:str, api_key:str, chat_history:list, local_model_pat
 
 def _generate_ollama_response(chat_history):
     """
-    Generate a response using Ollama with custom parameters for a cowboy persona.
+    Generate a response using Ollama with custom parameters.
     
     Args:
     chat_history (list): The chat history as a list of messages.
@@ -57,28 +57,15 @@ def _generate_ollama_response(chat_history):
     for message in chat_history:
         if message.get("role") == "system":
             has_system_message = True
-            # Update the existing system message to include our cowboy persona
-            message["content"] = (
-                message["content"] + 
-                "\n\nYou are Howdy, an LLM with a comedic personality influenced by mild southwestern elements." +
-                "You generally speak in standard English, reserving southwestern expressions for occasional comedic emphasis." +
-                "Your humor is lighthearted and includes facetious comments, playful teasing, and random pieces of wisdom." +
-                "You may respond with multiple paragraphs when necessary, offering detailed explanations or stories." +
-                "Maintain a friendly, helpful tone while preserving a gentle, folksy charm in all your replies."
-            )
+            # Update the existing system message with our system prompt from config
+            message["content"] = Config.SYSTEM_PROMPT
             break
     
-    # If there's no system message, add one with our cowboy persona
+    # If there's no system message, add one from config
     if not has_system_message:
         chat_history.insert(0, {
             "role": "system", 
-            "content": (
-                "You are Howdy, an LLM with a comedic personality influenced by mild southwestern elements." +
-                "You generally speak in standard English, reserving southwestern expressions for occasional comedic emphasis." +
-                "Your humor is lighthearted and includes facetious comments, playful teasing, and random pieces of wisdom." +
-                "You may respond with multiple paragraphs when necessary, offering detailed explanations or stories." +
-                "Maintain a friendly, helpful tone while preserving a gentle, folksy charm in all your replies."
-            )
+            "content": Config.SYSTEM_PROMPT
         })
     
     # Generate response with the configured options
