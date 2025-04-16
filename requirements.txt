@@ -35,10 +35,14 @@ uvicorn>=0.23.0
 # Data processing
 numpy>=1.24.0
 scipy>=1.10.0
+nltk>=3.9.1
+joblib>=1.4.2
+regex>=2021.8.3
 
 # ONNX for Kokoro TTS
 onnxruntime>=1.14.0
 torch>=1.13.0
+kokoro-onnx>=0.0.7  # TTS engine for voice synthesis
 
 # Optional: keyboard for hotkeys
 keyboard>=0.13.5
