@@ -5,7 +5,7 @@ pydantic>=2.7.1
 tqdm>=4.66.4
 
 # Audio processing
-PyAudio==0.2.12  # IMPORTANT: Version 0.2.14 has compatibility issues with PortAudio on macOS
+PyAudio==0.2.14
 SpeechRecognition==3.10.4
 pygame>=2.5.2
 sounddevice>=0.4.6
