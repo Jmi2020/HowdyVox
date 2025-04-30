@@ -97,7 +97,8 @@ class SetupManager:
         """Initialize the setup manager."""
         self.project_dir = os.path.dirname(os.path.abspath(__file__))
         self.models_dir = os.path.join(self.project_dir, "models")
-        self.venv_dir = os.path.join(self.project_dir, "venv")
+        # self.venv_dir = os.path.join(self.project_dir, "venv") # No longer using venv
+        self.conda_env_name = "howdy310" # Use this conda environment
         self.temp_dir = os.path.join(self.project_dir, "temp")
         
         # Improved Apple Silicon detection
@@ -135,49 +136,70 @@ class SetupManager:
         print(f"{Fore.GREEN}✓ Python version {self.python_version} is compatible.{Style.RESET_ALL}")
         return True
 
-    def setup_virtual_environment(self):
-        """Set up a virtual environment."""
-        if os.path.exists(self.venv_dir):
-            choice = input(f"{Fore.YELLOW}Virtual environment already exists. Recreate? (y/n): {Style.RESET_ALL}").lower()
-            if choice == 'y':
-                shutil.rmtree(self.venv_dir)
-            else:
-                print(f"{Fore.GREEN}Using existing virtual environment.{Style.RESET_ALL}")
-                return True
-        
+    def check_conda_environment(self):
+        """Check if the specified Conda environment exists."""
+        print(f"\n{Fore.CYAN}Checking for Conda environment '{self.conda_env_name}'...{Style.RESET_ALL}")
         try:
-            print(f"\n{Fore.CYAN}Creating virtual environment...{Style.RESET_ALL}")
-            subprocess.run([sys.executable, "-m", "venv", self.venv_dir], check=True)
-            print(f"{Fore.GREEN}✓ Virtual environment created successfully.{Style.RESET_ALL}")
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"{Fore.RED}Error creating virtual environment: {e}{Style.RESET_ALL}")
+            # Check if conda is available
+            subprocess.run(["conda", "--version"], check=True, capture_output=True)
+            
+            # List environments and check if ours exists
+            result = subprocess.run(["conda", "env", "list", "--json"], check=True, capture_output=True, text=True)
+            envs = json.loads(result.stdout)
+            
+            env_exists = any(Path(env_path).name == self.conda_env_name for env_path in envs.get("envs", []))
+            
+            if env_exists:
+                print(f"{Fore.GREEN}✓ Conda environment '{self.conda_env_name}' found.{Style.RESET_ALL}")
+                print(f"{Fore.YELLOW}Please ensure it's activated before running the rest of the setup:{Style.RESET_ALL}")
+                print(f"  conda activate {self.conda_env_name}")
+                # Give user time to activate if needed, or assume it's activated
+                input("Press Enter to continue once the environment is activated...") 
+                return True
+            else:
+                print(f"{Fore.RED}Error: Conda environment '{self.conda_env_name}' not found.{Style.RESET_ALL}")
+                print(f"Please create it using: conda create -n {self.conda_env_name} python=3.10")
+                print(f"Then activate it: conda activate {self.conda_env_name}")
+                return False
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            print(f"{Fore.RED}Error: Conda command not found or failed.{Style.RESET_ALL}")
+            print("Please ensure Conda is installed and configured correctly.")
+            return False
+        except json.JSONDecodeError:
+            print(f"{Fore.RED}Error parsing Conda environment list.{Style.RESET_ALL}")
             return False
 
+    def setup_virtual_environment(self):
+        """Set up a virtual environment."""
+        # No longer needed, using Conda environment
+        print(f"{Fore.GREEN}✓ Using existing Conda environment '{self.conda_env_name}'.{Style.RESET_ALL}")
+        return True
+
     def install_dependencies(self):
-        """Install dependencies."""
-        print(f"\n{Fore.CYAN}Installing dependencies...{Style.RESET_ALL}")
+        """Install dependencies using pip from the active Conda environment."""
+        print(f"\n{Fore.CYAN}Installing dependencies into Conda env '{self.conda_env_name}'...{Style.RESET_ALL}")
         
-        pip_path = os.path.join(self.venv_dir, "bin", "pip") if os.name != 'nt' else os.path.join(self.venv_dir, "Scripts", "pip")
+        # Use pip directly, assuming the conda env is activated
+        pip_command = "pip" 
         
         try:
             # Upgrade pip first
-            subprocess.run([pip_path, "install", "--upgrade", "pip"], check=True)
+            subprocess.run([pip_command, "install", "--upgrade", "pip"], check=True)
             
             # Install wheel for binary package installations
-            subprocess.run([pip_path, "install", "wheel"], check=True)
+            subprocess.run([pip_command, "install", "wheel"], check=True)
             
             # Try latest PyAudio first
             print(f"{Fore.YELLOW}Installing latest PyAudio (0.2.14)...{Style.RESET_ALL}")
-            subprocess.run([pip_path, "uninstall", "-y", "pyaudio"], check=False)
-            subprocess.run([pip_path, "install", "pyaudio==0.2.14"], check=True)
+            subprocess.run([pip_command, "uninstall", "-y", "pyaudio"], check=False) # Use pip_command
+            subprocess.run([pip_command, "install", "pyaudio==0.2.14"], check=True) # Use pip_command
             
             # Test if latest PyAudio works
             if not self.test_pyaudio_works():
                 print(f"{Fore.YELLOW}Latest PyAudio version didn't work properly. Downgrading to 0.2.12...{Style.RESET_ALL}")
                 # Install specific PyAudio version
-                subprocess.run([pip_path, "uninstall", "-y", "pyaudio"], check=False)
-                subprocess.run([pip_path, "install", "pyaudio==0.2.12"], check=True)
+                subprocess.run([pip_command, "uninstall", "-y", "pyaudio"], check=False) # Use pip_command
+                subprocess.run([pip_command, "install", "pyaudio==0.2.12"], check=True) # Use pip_command
                 
                 # Test again with older version
                 if not self.test_pyaudio_works():
@@ -189,21 +211,22 @@ class SetupManager:
             print(f"{Fore.YELLOW}Installing ONNX Runtime...{Style.RESET_ALL}")
             if self.is_apple_silicon:
                 # Apple Silicon requires special version
-                subprocess.run([pip_path, "install", "onnxruntime-silicon"], check=True)
+                subprocess.run([pip_command, "install", "onnxruntime-silicon"], check=True) # Use pip_command
             else:
                 # Intel Macs use standard onnxruntime
-                subprocess.run([pip_path, "install", "onnxruntime"], check=True)
+                subprocess.run([pip_command, "install", "onnxruntime"], check=True) # Use pip_command
             
             # Install other dependencies
             print(f"{Fore.YELLOW}Installing other dependencies...{Style.RESET_ALL}")
-            subprocess.run([pip_path, "install", "-r", "requirements.txt"], check=True)
+            subprocess.run([pip_command, "install", "-r", "requirements.txt"], check=True) # Use pip_command
             
             print(f"{Fore.GREEN}✓ Dependencies installed successfully.{Style.RESET_ALL}")
             self.success_count += 1
             return True
         except subprocess.CalledProcessError as e:
             print(f"{Fore.RED}Error installing dependencies: {e}{Style.RESET_ALL}")
-            print(f"{Fore.YELLOW}You might need to install PortAudio first:{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Ensure the Conda environment '{self.conda_env_name}' is activated.{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}You might also need to install PortAudio first:{Style.RESET_ALL}")
             print(f"  brew install portaudio")
             self.error_count += 1
             return False
@@ -331,7 +354,8 @@ class SetupManager:
             print(f"Please make sure the FastWhisperAPI directory exists in the project root.")
             return False
         
-        pip_path = os.path.join(self.venv_dir, "bin", "pip") if os.name != 'nt' else os.path.join(self.venv_dir, "Scripts", "pip")
+        # Use pip directly from activated conda env
+        pip_command = "pip" 
         
         try:
             # Install FastWhisperAPI requirements
@@ -339,22 +363,22 @@ class SetupManager:
             requirements_file = os.path.join(api_dir, "requirements.txt")
             
             if os.path.exists(requirements_file):
-                subprocess.run([pip_path, "install", "-r", requirements_file], check=True)
+                subprocess.run([pip_command, "install", "-r", requirements_file], check=True) # Use pip_command
             else:
                 # Fallback to common FastAPI dependencies
-                subprocess.run([pip_path, "install", "fastapi", "uvicorn", "python-multipart"], check=True)
+                subprocess.run([pip_command, "install", "fastapi", "uvicorn", "python-multipart"], check=True) # Use pip_command
             
             print(f"{Fore.GREEN}✓ FastWhisperAPI dependencies installed successfully.{Style.RESET_ALL}")
             
-            # Create a startup script with correct path to uvicorn
+            # Create a startup script with correct path to uvicorn (assuming it's in PATH from conda env)
             startup_script = os.path.join(self.project_dir, "start_fastwhisper_api.sh")
-            python_bin = os.path.join(self.venv_dir, "bin") if os.name != 'nt' else os.path.join(self.venv_dir, "Scripts")
             
             with open(startup_script, "w") as f:
                 f.write("#!/bin/bash\n\n")
                 f.write("# Start FastWhisperAPI service\n")
+                f.write(f"# Activate conda environment first: conda activate {self.conda_env_name}\n")
                 f.write("cd FastWhisperAPI\n")
-                f.write(f"{os.path.join(python_bin, 'uvicorn')} main:app --reload\n")
+                f.write(f"uvicorn main:app --reload\n") # Use uvicorn directly
             
             # Make the script executable
             os.chmod(startup_script, 0o755)
@@ -444,15 +468,15 @@ class SetupManager:
                 print(f"{Fore.RED}Microphone test script not found: {test_script}{Style.RESET_ALL}")
                 return False
             
-            # Get the Python executable from the virtual environment
-            python_path = os.path.join(self.venv_dir, "bin", "python") if os.name != 'nt' else os.path.join(self.venv_dir, "Scripts", "python")
+            # Use python directly from activated conda env
+            python_command = "python" 
             
             print(f"{Fore.YELLOW}Running microphone test...{Style.RESET_ALL}")
             print(f"When prompted, speak a short phrase to test your microphone.")
             
             # Run the test
             time.sleep(2)  # Give user time to read
-            subprocess.run([python_path, test_script], check=True)
+            subprocess.run([python_command, test_script], check=True) # Use python_command
             
             return True
             
@@ -468,9 +492,10 @@ class SetupManager:
         if not self.check_package_installed("kokoro_onnx"):
             print(f"{Fore.RED}The kokoro_onnx package is not installed. Installing it now...{Style.RESET_ALL}")
             
-            pip_path = os.path.join(self.venv_dir, "bin", "pip") if os.name != 'nt' else os.path.join(self.venv_dir, "Scripts", "pip")
+            # Use pip directly from activated conda env
+            pip_command = "pip" 
             try:
-                subprocess.run([pip_path, "install", "kokoro_onnx"], check=True)
+                subprocess.run([pip_command, "install", "kokoro_onnx"], check=True) # Use pip_command
                 print(f"{Fore.GREEN}Successfully installed kokoro_onnx package.{Style.RESET_ALL}")
             except subprocess.CalledProcessError:
                 print(f"{Fore.RED}Failed to install kokoro_onnx package. Skipping TTS test.{Style.RESET_ALL}")
@@ -483,10 +508,19 @@ class SetupManager:
                 f.write("""
 import soundfile as sf
 from kokoro_onnx import Kokoro
+import os
 
 try:
     print("Loading Kokoro model...")
-    kokoro = Kokoro("models/kokoro-v1.0.onnx", "models/voices-v1.0.bin")
+    # Assuming models are in the 'models' subdirectory relative to the script
+    model_path = os.path.join("models", "kokoro-v1.0.onnx")
+    voices_path = os.path.join("models", "voices-v1.0.bin")
+    
+    if not os.path.exists(model_path) or not os.path.exists(voices_path):
+        print(f"Error: Model files not found in 'models' directory.")
+        exit(1)
+        
+    kokoro = Kokoro(model_path, voices_path)
     
     print("Generating test audio...")
     samples, sample_rate = kokoro.create(
@@ -496,7 +530,9 @@ try:
         lang="en-us"
     )
     
-    output_file = "temp/test_kokoro.wav"
+    output_dir = "temp"
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, "test_kokoro.wav")
     sf.write(output_file, samples, sample_rate)
     print(f"Successfully generated audio: {output_file}")
     
@@ -515,13 +551,13 @@ except Exception as e:
     exit(1)
                 """)
             
-            # Get the Python executable from the virtual environment
-            python_path = os.path.join(self.venv_dir, "bin", "python") if os.name != 'nt' else os.path.join(self.venv_dir, "Scripts", "python")
+            # Use python directly from activated conda env
+            python_command = "python" 
             
             print(f"{Fore.YELLOW}Testing Kokoro TTS...{Style.RESET_ALL}")
             
             # Run the test
-            subprocess.run([python_path, test_script], check=True)
+            subprocess.run([python_command, test_script], check=True) # Use python_command
             
             # Check if the output file was created
             if os.path.exists(os.path.join(self.project_dir, "temp", "test_kokoro.wav")):
@@ -539,7 +575,8 @@ except Exception as e:
         """Test if PyAudio is working properly."""
         print(f"{Fore.YELLOW}Testing PyAudio installation...{Style.RESET_ALL}")
         
-        python_path = os.path.join(self.venv_dir, "bin", "python") if os.name != 'nt' else os.path.join(self.venv_dir, "Scripts", "python")
+        # Use python directly from activated conda env
+        python_command = "python" 
         
         # Create a simple test script
         test_script = os.path.join(self.temp_dir, "test_pyaudio.py")
@@ -576,10 +613,10 @@ except Exception as e:
     print(f"PyAudio test failed: {e}")
     exit(1)
             """)
-        
+
         # Run the test
         try:
-            result = subprocess.run([python_path, test_script], capture_output=True, text=True, timeout=10)
+            result = subprocess.run([python_command, test_script], capture_output=True, text=True, timeout=10) # Use python_command
             
             if result.returncode == 0:
                 print(f"{Fore.GREEN}✓ PyAudio is working correctly.{Style.RESET_ALL}")
@@ -592,7 +629,7 @@ except Exception as e:
             return False
 
     def create_run_script(self):
-        """Create a run script for easy startup."""
+        """Create a run script for easy startup using Conda."""
         print(f"\n{Fore.CYAN}=== Creating Run Script ==={Style.RESET_ALL}")
         
         run_script = os.path.join(self.project_dir, "run_howdy.sh")
@@ -600,11 +637,11 @@ except Exception as e:
         try:
             with open(run_script, "w") as f:
                 f.write("#!/bin/bash\n\n")
-                f.write("# HowdyTTS Launcher Script\n")
+                f.write("# HowdyTTS Launcher Script (using Conda)\n")
                 f.write("# Created by mac_setup.py\n\n")
                 
-                f.write("# Activate virtual environment\n")
-                f.write(f"source {os.path.join(self.venv_dir, 'bin', 'activate')}\n\n")
+                f.write("# Activate Conda environment\n")
+                f.write(f"conda activate {self.conda_env_name}\n\n")
                 
                 f.write("# Check if Ollama is running\n")
                 f.write("if ! pgrep -x \"ollama\" > /dev/null; then\n")
@@ -618,7 +655,7 @@ except Exception as e:
                 f.write("if ! curl -s http://localhost:8000/info > /dev/null; then\n")
                 f.write("    echo \"Starting FastWhisperAPI...\"\n")
                 f.write("    cd FastWhisperAPI\n")
-                f.write(f"    {os.path.join(python_bin, 'uvicorn')} main:app --reload &\n")
+                f.write(f"    uvicorn main:app --reload &\n") # Use uvicorn directly
                 f.write("    FASTWHISPER_PID=$!\n")
                 f.write("    cd ..\n")
                 f.write("    sleep 2\n")
@@ -627,19 +664,20 @@ except Exception as e:
                 f.write("# Run HowdyTTS\n")
                 f.write("python run_voice_assistant.py\n\n")
                 
-                f.write("# Cleanup (only kill processes we started)\n")
-                f.write("if [ -n \"$OLLAMA_PID\" ]; then\n")
-                f.write("    kill $OLLAMA_PID\n")
-                f.write("fi\n")
-                f.write("if [ -n \"$FASTWHISPER_PID\" ]; then\n")
-                f.write("    kill $FASTWHISPER_PID\n")
-                f.write("fi\n")
-            
+                # Add cleanup for background processes (optional but good practice)
+                f.write("cleanup() {\n")
+                f.write("    echo \"Cleaning up background processes...\"\n")
+                f.write("    [ ! -z \"$OLLAMA_PID\" ] && kill $OLLAMA_PID\n")
+                f.write("    [ ! -z \"$FASTWHISPER_PID\" ] && kill $FASTWHISPER_PID\n")
+                f.write("}\n")
+                f.write("trap cleanup EXIT\n")
+
             # Make the script executable
             os.chmod(run_script, 0o755)
             
             print(f"{Fore.GREEN}✓ Created launcher script: {run_script}{Style.RESET_ALL}")
             print(f"You can now start HowdyTTS with: ./run_howdy.sh")
+            print(f"(Ensure '{self.conda_env_name}' is activated first if running manually)")
             
             return True
             
@@ -648,10 +686,11 @@ except Exception as e:
             return False
 
     def check_package_installed(self, package_name):
-        """Check if a package is installed in the virtual environment."""
-        python_path = os.path.join(self.venv_dir, "bin", "python") if os.name != 'nt' else os.path.join(self.venv_dir, "Scripts", "python")
+        """Check if a package is installed in the active environment."""
+        # Use python directly from activated conda env
+        python_command = "python" 
         result = subprocess.run(
-            [python_path, "-c", f"import {package_name}; print('Package found')"],
+            [python_command, "-c", f"import {package_name}; print('Package found')"], # Use python_command
             capture_output=True,
             text=True
         )
@@ -665,83 +704,80 @@ except Exception as e:
         
         self.print_system_info()
         
-        # Check Python version
+        # Check Python version (of the current interpreter, should be from conda env)
         if not self.check_python_version():
-            return False
+            return # Exit if Python version is wrong
         
-        # Set up virtual environment
-        if not self.setup_virtual_environment():
-            return False
+        # Check Conda environment
+        if not self.check_conda_environment():
+            print(f"{Fore.RED}Exiting setup. Please create or activate the '{self.conda_env_name}' Conda environment.{Style.RESET_ALL}")
+            return # Exit if conda env is not found/activated
         
         # Install dependencies
         if not self.install_dependencies():
-            print(f"{Fore.YELLOW}Warning: Some dependencies may not be installed correctly.{Style.RESET_ALL}")
+            print(f"{Fore.RED}Dependency installation failed. Exiting setup.{Style.RESET_ALL}")
+            return # Exit if dependencies fail
         
         # Download models if requested
         if download_models:
             if not self.download_models():
-                print(f"{Fore.YELLOW}Warning: Some model files may not be downloaded correctly.{Style.RESET_ALL}")
+                print(f"{Fore.YELLOW}Model download failed for some required models. Setup may be incomplete.{Style.RESET_ALL}")
+                # Continue if possible, but warn user
         
-        # Configure environment
+        # Configure environment (.env file)
         if not self.configure_environment():
-            print(f"{Fore.YELLOW}Warning: Environment may not be configured correctly.{Style.RESET_ALL}")
-        
-        # Set up services if requested
+             # This is usually not critical, so just warn
+             print(f"{Fore.YELLOW}Failed to configure .env file. Please check manually.{Style.RESET_ALL}")
+
+        # Setup services if requested
         if setup_services:
-            self.setup_fastwhisper_api()
-            self.setup_ollama()
-        
+            if not self.setup_fastwhisper_api():
+                 print(f"{Fore.YELLOW}Failed to set up FastWhisperAPI. Transcription might not work locally.{Style.RESET_ALL}")
+            if not self.setup_ollama():
+                 print(f"{Fore.YELLOW}Failed to set up Ollama. Local LLM responses might not work.{Style.RESET_ALL}")
+
         # Test components if requested
         if test_components:
-            print(f"\n{Fore.CYAN}=== Component Testing (Optional) ==={Style.RESET_ALL}")
-            choice = input(f"Would you like to test microphone and TTS components? (y/n): ").lower()
-            if choice == 'y':
-                self.test_microphone()
-                self.test_kokoro_tts()
-                self.test_pyaudio_works()
-        
+            print(f"\n{Fore.CYAN}=== Running Component Tests ==={Style.RESET_ALL}")
+            mic_ok = self.test_microphone()
+            tts_ok = self.test_kokoro_tts()
+            
+            if mic_ok: self.success_count += 1 
+            else: self.error_count += 1
+            if tts_ok: self.success_count += 1
+            else: self.error_count += 1
+            
+            print(f"Microphone Test: {'Passed' if mic_ok else 'Failed'}")
+            print(f"Kokoro TTS Test: {'Passed' if tts_ok else 'Failed'}")
+
         # Create run script
-        self.create_run_script()
-        
-        # Summary
+        self.create_run_script() # Attempt to create regardless of previous errors
+
+        # Final summary
         print(f"\n{Fore.CYAN}=== Setup Summary ==={Style.RESET_ALL}")
-        print(f"Successful operations: {self.success_count}")
+        print(f"Successful steps: {self.success_count}")
         print(f"Errors encountered: {self.error_count}")
         
-        if self.error_count > 0:
-            print(f"\n{Fore.YELLOW}Some setup steps encountered errors. Check the log for details.{Style.RESET_ALL}")
-            print(f"You may need to resolve these issues manually.")
+        if self.error_count == 0:
+            print(f"{Fore.GREEN}✓ HowdyTTS setup completed successfully!{Style.RESET_ALL}")
         else:
-            print(f"\n{Fore.GREEN}Setup completed successfully!{Style.RESET_ALL}")
-        
-        print(f"\n{Fore.CYAN}=== Next Steps ==={Style.RESET_ALL}")
-        print(f"1. Start Ollama: ollama serve")
-        print(f"2. Start FastWhisperAPI: cd FastWhisperAPI && ../venv/bin/uvicorn main:app --reload")
-        print(f"3. Run HowdyTTS: ./run_howdy.sh")
-        print(f"\nOr simply run the launcher script which handles all services: ./run_howdy.sh")
-        
-        return self.error_count == 0
+            print(f"{Fore.YELLOW}⚠️ HowdyTTS setup completed with errors. Please review the logs.{Style.RESET_ALL}")
 
 def main():
     """Main function to run the setup script."""
-    parser = argparse.ArgumentParser(description="HowdyTTS Mac Setup Utility")
-    parser.add_argument("--download-models", action="store_true", default=True,
-                      help="Download model files (default: True)")
-    parser.add_argument("--test-components", action="store_true", default=True,
-                      help="Test components after setup (default: True)")
-    parser.add_argument("--setup-services", action="store_true", default=True,
-                      help="Set up FastWhisperAPI and Ollama (default: True)")
+    parser = argparse.ArgumentParser(description="HowdyTTS Mac Setup Script")
+    parser.add_argument("--skip-models", action="store_true", help="Skip downloading model files")
+    parser.add_argument("--skip-tests", action="store_true", help="Skip running component tests")
+    parser.add_argument("--skip-services", action="store_true", help="Skip setting up FastWhisperAPI and Ollama")
     
     args = parser.parse_args()
     
     setup_manager = SetupManager()
-    success = setup_manager.run(
-        download_models=args.download_models,
-        test_components=args.test_components,
-        setup_services=args.setup_services
+    setup_manager.run(
+        download_models=not args.skip_models,
+        test_components=not args.skip_tests,
+        setup_services=not args.skip_services
     )
-    
-    return 0 if success else 1
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

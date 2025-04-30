@@ -73,6 +73,9 @@ class WakeWordDetector:
             logging.error(f"{Fore.RED}PORCUPINE_ACCESS_KEY not found in environment variables{Fore.RESET}")
             raise ValueError("PORCUPINE_ACCESS_KEY environment variable not set")
         
+        # Clean up access key by removing quotes and whitespace
+        access_key = access_key.strip().strip('"').strip("'")
+        
         # Path to custom wake word model file
         model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
                                  "models", "Hey-Howdy_en_mac_v3_0_0.ppn")
