@@ -29,20 +29,23 @@ elevenlabs>=0.2.26
 cartesia>=0.3.0
 
 # Web server (for FastWhisperAPI)
-fastapi>=0.100.0
+fastapi[standard]>=0.100.0
 uvicorn>=0.23.0
 
 # Data processing
-numpy>=1.24.0
+numpy==2.2.5  # Fixed version for compatibility with ONNX Runtime
 scipy>=1.10.0
 nltk>=3.9.1
 joblib>=1.4.2
 regex>=2021.8.3
 
 # ONNX for Kokoro TTS
-onnxruntime>=1.14.0
+# For non-Apple Silicon platforms
+onnxruntime==1.21.1; platform_machine != "arm64" or platform_system != "Darwin"
+# For Apple Silicon (M-series) Macs - this is the optimized version
+onnxruntime-silicon==1.16.3; platform_machine == "arm64" and platform_system == "Darwin"
 torch>=1.13.0
-kokoro-onnx>=0.0.7  # TTS engine for voice synthesis
+kokoro-onnx==0.4.8  # TTS engine for voice synthesis with Apple Silicon support
 
 # Optional: keyboard for hotkeys
 keyboard>=0.13.5
