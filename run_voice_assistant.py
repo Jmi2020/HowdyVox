@@ -256,6 +256,10 @@ def main():
                     if not safe_start_wake_word_detection():
                         # If we can't restart, wait a bit and try again
                         time.sleep(5)
+                        logging.warning("Wake word detector not initialized, restarting...")
+                    if not safe_start_wake_word_detection():
+                        # If we can't restart, wait a bit and try again
+                        time.sleep(5)
                         continue
                 
                 time.sleep(0.1)  # Short sleep to prevent busy waiting
@@ -495,7 +499,8 @@ def main():
     # Cleanup
     if led_matrix:
         # Set matrix to waiting state before exiting
-        led_matrix.set_waiting()
+        if led_matrix:
+            led_matrix.set_waiting()
     cleanup_all_detectors()
 
 if __name__ == "__main__":

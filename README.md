@@ -119,6 +119,29 @@ Voice blending opens up endless possibilities for customization - from subtle vo
 
 For detailed instructions and advanced usage, see the [VoiceBlend.md](VoiceBlend.md) guide.
 
+## LED Matrix Display (Optional) 🌟
+
+HowdyTTS supports connecting to an ESP32-S3 LED matrix display to show visual feedback of the assistant's state:
+
+- **Waiting**: Displayed when waiting for wake word
+- **Listening**: Shown when listening for your command
+- **Thinking**: Displayed when generating a response
+- **Speaking**: Shows the response text scrolling across the display
+- **Ending**: Appears when ending a conversation
+
+### Setting up the LED Matrix
+
+1. Flash your ESP32-S3 with the HowdyTTS LED Matrix firmware (see [ESP32 directory](ESP32/))
+2. Connect your ESP32-S3 to your WiFi network
+3. Note the IP address assigned to your ESP32-S3
+4. Add the ESP32 IP to your `.env` file:
+
+```
+ESP32_IP=192.168.1.xxx  # Replace with your ESP32's IP address
+```
+
+The LED matrix will automatically be used if the ESP32_IP environment variable is set.
+
 ## Testing the Setup 🧪
 
 1. Test your microphone:
