@@ -41,8 +41,8 @@ def _generate_ollama_response(chat_history):
         # Control randomness - lower values make responses more focused and deterministic
         "temperature": 0.7,
         
-        # Limit the length of responses (in tokens) - increased from 100 to 300 to allow for longer stories
-        "num_predict": 300,
+        # Limit the length of responses (in tokens) - increased from 100 to 1000 to allow for longer stories
+        "num_predict": 1000,
         
         # Make the model more concise
         "top_k": 40,

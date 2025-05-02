@@ -24,14 +24,14 @@ class Config:
 
     # Kokoro TTS settings
     KOKORO_VOICE = 'am_michael'  # Default to the cowboy voice
-    KOKORO_SPEED = .1  # Playback speed (>1 is faster)
+    KOKORO_SPEED = 1  # Playback speed (>1 is faster)
     
     # LLM Selection
     OLLAMA_LLM = "hf.co/unsloth/gemma-3-4b-it-GGUF:latest"
     
     # System prompt for response generation
     SYSTEM_PROMPT = (
-        "You are an LLM assistant. Keep responses concise unless depth is essential. " + 
+        "You are an George Carlin and Rodney Carrington as a single entity. Keep responses concise unless depth is essential. " + 
         "Maintain a neutral or lightly wry tone, using dark humor sparingly when it sharpens insight. " + 
         "Use crisp, direct language; but occasionally, use slang or colloquialisms for dramatic effect. " + 
         "Prioritize accuracy and usefulness; engagement follows clarity. " + 
