@@ -23,11 +23,40 @@ def get_recognizer():
     """
     return sr.Recognizer()
 
+def detect_leading_silence(sound, silence_threshold=-50, chunk_size=10):
+    """
+    Detect leading silence in an audio segment.
+    Returns the duration of leading silence in milliseconds.
+    
+    Parameters:
+        sound: pydub.AudioSegment
+        silence_threshold: threshold in dB below reference (default: -50)
+        chunk_size: size of chunks to analyze in ms (default: 10)
+    """
+    trim_ms = 0
+    assert chunk_size > 0
+    while trim_ms < len(sound) and sound[trim_ms:trim_ms+chunk_size].dBFS < silence_threshold:
+        trim_ms += chunk_size
+    return trim_ms
+
+
 def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energy_threshold=2000, 
                  pause_threshold=1, phrase_threshold=0.1, dynamic_energy_threshold=True, 
-                 calibration_duration=1):
+                 calibration_duration=1, is_wake_word_response=False):
     """
     Record audio from the microphone and save it as an MP3 file.
+    
+    Args:
+        file_path: Path to save the MP3 file
+        timeout: Maximum time to wait for phrase to start
+        phrase_time_limit: Maximum time to allow for a phrase
+        retries: Number of times to retry recording on failure
+        energy_threshold: Minimum audio energy to consider for recording
+        pause_threshold: Seconds of silence to consider the end of a phrase
+        phrase_threshold: Minimum duration of speaking to consider a phrase
+        dynamic_energy_threshold: Whether to adjust energy threshold dynamically
+        calibration_duration: Seconds to calibrate microphone for ambient noise
+        is_wake_word_response: Whether this is recording after wake word detection (forces trim)
     """
     # Import here to avoid circular import
     from voice_assistant.config import Config
@@ -45,7 +74,12 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
         try:
             with sr.Microphone() as source:
                 logging.info("Calibrating for ambient noise...")
+                # Longer calibration to better detect ambient noise levels
                 recognizer.adjust_for_ambient_noise(source, duration=calibration_duration)
+                
+                # Wait a short moment to ensure any activation sounds have completely stopped
+                time.sleep(0.5)
+                
                 logging.info("Recording started")
                 # Listen for the first phrase and extract it into audio data
                 audio_data = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
@@ -54,6 +88,43 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
                 # Convert the recorded audio data to an MP3 file
                 wav_data = audio_data.get_wav_data()
                 audio_segment = pydub.AudioSegment.from_wav(BytesIO(wav_data))
+                
+                # Try to remove any potential activation sound remnants by trimming initial sounds
+                # This helps avoid hearing the tail end of system prompts in recordings
+                try:
+                    # Find where actual speech starts using our custom detector function
+                    # Using a very aggressive threshold (-40dB) to ensure activation sounds are removed
+                    start_trim = detect_leading_silence(audio_segment, silence_threshold=-40)
+                    
+                    if is_wake_word_response:
+                        # For wake word response, always trim the first 500ms of audio to remove activation sound reliably
+                        # But don't trim more than 3 seconds total to avoid cutting off actual speech
+                        forced_trim = 500  # Always trim at least 500ms
+                        if start_trim > forced_trim:
+                            # If we detected substantial leading noise, trim it
+                            # But don't trim more than 3 seconds
+                            start_trim = min(3000, start_trim)
+                            # A small buffer (100ms) to make sure we don't cut off actual speech
+                            trim_point = max(forced_trim, start_trim - 100)
+                            audio_segment = audio_segment[trim_point:]
+                            logging.info(f"Trimmed {trim_point}ms from beginning of recording to remove activation sound")
+                        else:
+                            # If we didn't detect much silence, still trim the forced amount
+                            audio_segment = audio_segment[forced_trim:]
+                            logging.info(f"Forced trim of {forced_trim}ms from beginning of recording")
+                    else:
+                        # For regular conversation turns, only trim if we detect substantial silence
+                        if start_trim > 300:
+                            # A reasonable buffer (100ms) to make sure we don't cut off speech
+                            trim_point = max(0, start_trim - 100)
+                            audio_segment = audio_segment[trim_point:]
+                            logging.info(f"Trimmed {trim_point}ms of silence from beginning of recording")
+                        else:
+                            logging.info("No significant leading silence detected, keeping full recording")
+                except Exception as trim_error:
+                    # If trimming fails, just use the original audio
+                    logging.warning(f"Failed to trim audio: {trim_error}")
+                
                 mp3_data = audio_segment.export(file_path, format="mp3", bitrate="128k", parameters=["-ar", "22050", "-ac", "1"])
                 return
         except sr.WaitTimeoutError:

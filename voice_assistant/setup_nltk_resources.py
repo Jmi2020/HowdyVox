@@ -26,6 +26,7 @@ def setup_nltk_resources():
         # List of commonly needed resources for text processing in TTS
         resources = [
             'punkt',                      # Sentence tokenizer
+            'punkt_tab',                  # Punkt tokenizer tab format
             'averaged_perceptron_tagger', # POS tagger
             'cmudict',                    # Pronunciation dictionary
             'wordnet',                    # Lexical database

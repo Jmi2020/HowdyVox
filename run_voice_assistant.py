@@ -36,6 +36,7 @@ conversation_active = threading.Event()  # Flag to track if we're in an active c
 restart_count = 0  # Track how many times we've restarted to avoid infinite loops
 led_matrix = None  # LED Matrix controller instance
 activation_sound_playing = threading.Event()  # Flag to track if activation sound is playing
+is_first_turn_after_wake = threading.Event()  # Flag to track if this is the first turn after wake word
 
 def check_end_conversation(text):
     """
@@ -77,6 +78,9 @@ def handle_wake_word():
     wake_word_detected.set()
     conversation_active.set()
     
+    # Set the flag that this is the first turn after wake word
+    is_first_turn_after_wake.set()
+    
     # Play activation sound first, before updating LED matrix
     try:
         # First, check if the activation sound exists
@@ -84,29 +88,29 @@ def handle_wake_word():
             # Signal that activation sound is playing
             activation_sound_playing.set()
             
-            # Get the duration of the audio file
-            import wave
-            with wave.open("voice_samples/activate.wav", 'rb') as wf:
-                frames = wf.getnframes()
-                rate = wf.getframerate()
-                duration = frames / float(rate)
-                
-            # Play the activation sound
-            play_audio("voice_samples/activate.wav")
+            # Play the activation sound in a separate thread so we don't block
+            threading.Thread(target=lambda: play_and_clear_flag("voice_samples/activate.wav"), daemon=True).start()
             
-            # Wait for the activation sound to finish (add a small buffer)
-            logging.info(f"Waiting for activation sound to complete ({duration:.2f}s)")
-            time.sleep(duration + 0.2)  # Reduced buffer from 0.5s to 0.2s
-            logging.info("Activation sound completed, now listening for user input")
+            # Brief pause to ensure the playback thread starts
+            time.sleep(0.1)
+            
+            logging.info("Activation sound started, preparing to listen")
     except Exception as e:
         logging.info(f"Activation sound error: {e}, continuing without it")
-    finally:
-        # Always clear the flag when we're done, whether there was an error or not
+        # Clear the flag in case of error
         activation_sound_playing.clear()
         
-    # Update LED matrix to show "Listening" - now happens after activation sound
+    # Update LED matrix to show "Listening" right away
     if led_matrix:
         led_matrix.set_listening()
+        
+# Helper function to play audio and clear flag when done
+def play_and_clear_flag(audio_path):
+    try:
+        play_audio(audio_path)
+    finally:
+        # Always clear the flag when audio playback completes
+        activation_sound_playing.clear()
 
 def safe_start_wake_word_detection():
     """Safely start a new wake word detection with error handling"""
@@ -233,6 +237,9 @@ def main():
     
     # Ensure activation sound flag is initially cleared
     activation_sound_playing.clear()  # Initially clear since no activation sound is playing
+    
+    # Make sure first turn flag is initially cleared
+    is_first_turn_after_wake.clear()  # Initially clear
 
     # Start the wake word detection
     if not safe_start_wake_word_detection():
@@ -264,13 +271,15 @@ def main():
             if wake_word_detected.is_set():
                 # Clear the wake word detected flag for next time
                 wake_word_detected.clear()
-                # Activation sound is now handled in the handle_wake_word()
-                # Wait for activation sound to complete before recording
+                
+                # Check if activation sound is playing
                 if activation_sound_playing.is_set():
-                    logging.info("Waiting for activation sound to complete before recording...")
-                    while activation_sound_playing.is_set():
-                        time.sleep(0.1)
-                    logging.info("Activation sound completed, now recording user input")
+                    logging.info("Activation sound is playing in background")
+                    time.sleep(0.1)
+                else:
+                    logging.info("No activation sound playing")
+                
+                logging.info("Starting recording now...")
             
             # Record audio from the microphone and save it
             if conversation_active.is_set():
@@ -279,7 +288,14 @@ def main():
                 # Update LED matrix to "Listening" (LED state is already set in handle_wake_word)
                 # The second set_listening call was here - removed to fix duplicate updates
             
-            record_audio(Config.INPUT_AUDIO)
+            # Check if we need to apply wake word filtering
+            apply_wake_word_filter = is_first_turn_after_wake.is_set()
+            
+            # Record audio with the appropriate flag
+            record_audio(Config.INPUT_AUDIO, is_wake_word_response=apply_wake_word_filter)
+            
+            # Clear the first turn flag after recording
+            is_first_turn_after_wake.clear()
 
             # Get the API key for transcription (will be None for FastWhisperAPI)
             transcription_api_key = get_transcription_api_key()
