@@ -159,7 +159,8 @@ def safe_start_wake_word_detection():
             return False
         
         # Run targeted garbage collection to free audio resources
-        targeted_gc()
+        cleaned_count = targeted_gc()
+        logging.info(f"Cleaned up {cleaned_count} audio-related objects")
         time.sleep(0.5)  # Short pause to allow resource cleanup
         
         return False
