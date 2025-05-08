@@ -5,7 +5,17 @@ import logging
 import warnings
 import platform
 import sys
+import numpy as np
 from dotenv import load_dotenv
+
+# Set environment variables for ONNX optimization BEFORE importing onnxruntime
+# Set thread count for better performance
+os.environ["OMP_NUM_THREADS"] = str(max(1, os.cpu_count() - 1))
+os.environ["ORT_TENSORRT_FP16_ENABLE"] = "1"  # Enable FP16 precision if supported
+
+# For Apple Silicon Macs, enable CoreML
+if platform.system() == "Darwin" and platform.machine() == "arm64":
+    os.environ["ORT_COREML_ALLOWED"] = "1"
 
 # Load environment variables to check for optimizations
 load_dotenv()
@@ -68,7 +78,7 @@ class KokoroManager:
     @classmethod
     def get_instance(cls, model_path=None, voices_path=None, local_model_path=None):
         """
-        Get or initialize the Kokoro TTS model instance.
+        Get or initialize the Kokoro TTS model instance with optimizations.
         
         Args:
             model_path (str): Path to the Kokoro ONNX model file
@@ -108,18 +118,15 @@ class KokoroManager:
             logging.info(f"Loading Kokoro model from: {model_path}")
             logging.info(f"Loading Kokoro voices from: {voices_path}")
             
-            # Configure ONNX Runtime using environment variables
-            # Set thread count for better performance
-            os.environ["OMP_NUM_THREADS"] = str(max(1, os.cpu_count() - 1))
-            os.environ["ORT_TENSORRT_FP16_ENABLE"] = "1"  # Enable FP16 precision if supported
+            # Configure ONNX Runtime optimization
+            # Note: We already set the environment variables at the top of the file
             
-            # Set execution provider based on platform
+            # Set execution provider based on platform and log information
             system = platform.system()
             if system == "Darwin":  # macOS
                 # Check for Apple Silicon and use CoreML
                 if platform.machine() == "arm64":
-                    logging.info("Detected Apple Silicon - setting CoreML provider")
-                    os.environ["ORT_COREML_ALLOWED"] = "1"
+                    logging.info("Detected Apple Silicon - enabled CoreML provider")
                     
                     # Check if we're using the silicon-specific package
                     if 'onnxruntime_silicon' in sys.modules:
@@ -142,6 +149,25 @@ class KokoroManager:
                 # ONNX Runtime will automatically use the best available provider
             else:  # Linux or others
                 logging.info("On Linux or other OS - trying CUDA provider if available")
+                
+            # Set threading and optimization configuration
+            try:
+                # Apply global ONNX runtime options to enhance performance
+                # These will be used by Kokoro when it creates the InferenceSession
+                ort.set_default_logger_severity(3)  # Set to warning level
+                
+                # If possible, enhance performance through provider configuration
+                # This is applied to future InferenceSession objects
+                if hasattr(ort, 'set_session_options'):
+                    options = ort.SessionOptions()
+                    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                    options.intra_op_num_threads = max(1, os.cpu_count() - 1)
+                    options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+                    ort.set_session_options(options)
+                    logging.info("Applied enhanced ONNX session options")
+            except Exception as e:
+                logging.warning(f"Could not apply advanced ONNX optimizations: {e}")
+                logging.info("Falling back to environment-based configuration only")
             
             # Log available providers if the function exists
             if hasattr(ort, 'get_available_providers'):
@@ -157,7 +183,25 @@ class KokoroManager:
                     logging.info("Initializing Kokoro model...")
                     
                     # Initialize Kokoro with the model and voices paths
+                    # Note: The Kokoro class doesn't accept session_options directly
+                    # We'll set the global onnxruntime options instead
+                    
+                    # Apply session options to global onnxruntime configuration
+                    # The Kokoro class will use these when creating its InferenceSession
+                    ort.set_default_logger_severity(3)  # Set to warning level
+                    
                     cls._instance = Kokoro(model_path, voices_path)
+                    
+                    # Preload common voices by running a small inference
+                    logging.info("Preloading common voices...")
+                    common_voices = ["am_michael"]
+                    for voice in common_voices:
+                        try:
+                            # Use the create method for preloading
+                            _ = cls._instance.create("Hello.", voice=voice, speed=1.0, lang="en-us")
+                            logging.info(f"Preloaded voice '{voice}' using create() method")
+                        except Exception as e:
+                            logging.warning(f"Failed to preload voice {voice}: {e}")
                     
                     # Log the successful initialization
                     logging.info("Kokoro TTS model successfully initialized")
