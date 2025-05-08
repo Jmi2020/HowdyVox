@@ -11,7 +11,7 @@ from voice_assistant.audio import record_audio, play_audio
 from voice_assistant.transcription import transcribe_audio
 from voice_assistant.response_generation import generate_response
 from voice_assistant.text_to_speech import text_to_speech, get_next_chunk, generation_complete
-from voice_assistant.utils import delete_file
+from voice_assistant.utils import delete_file, targeted_gc
 from voice_assistant.config import Config
 from voice_assistant.api_key_manager import get_transcription_api_key, get_response_api_key, get_tts_api_key
 from voice_assistant.kokoro_manager import KokoroManager
@@ -158,9 +158,9 @@ def safe_start_wake_word_detection():
             logging.error("Too many failed restart attempts, giving up")
             return False
         
-        # Run garbage collection to free resources
-        gc.collect()
-        time.sleep(1.0)  # Wait a bit before trying again
+        # Run targeted garbage collection to free audio resources
+        targeted_gc()
+        time.sleep(0.5)  # Short pause to allow resource cleanup
         
         return False
 
@@ -175,6 +175,10 @@ def signal_handler(sig, frame):
     
     # Cleanup all wake word detectors
     cleanup_all_detectors()
+    
+    # Perform targeted garbage collection to clean up audio resources
+    cleaned_count = targeted_gc()
+    print(f"{Fore.CYAN}Cleaned up {cleaned_count} audio resources{Fore.RESET}")
     
     sys.exit(0)
 
@@ -372,11 +376,12 @@ def main():
                     if wake_word_detector:
                         wake_word_detector.stop()
                     
-                    # Run garbage collection explicitly to free resources
-                    gc.collect()
+                    # Run targeted garbage collection to free audio resources
+                    cleaned_count = targeted_gc()
+                    logging.info(f"Cleaned up {cleaned_count} audio-related objects")
                     
                     # Wait for resources to be completely released
-                    time.sleep(2.0)
+                    time.sleep(0.5)  # Short pause to allow resource cleanup
                     
                     # Create a fresh detector
                     safe_start_wake_word_detection()
@@ -499,9 +504,14 @@ def main():
     # Cleanup
     if led_matrix:
         # Set matrix to waiting state before exiting
-        if led_matrix:
-            led_matrix.set_waiting()
+        led_matrix.set_waiting()
+    
+    # Clean up detectors and audio resources
     cleanup_all_detectors()
+    
+    # Perform targeted garbage collection
+    cleaned_count = targeted_gc()
+    print(f"{Fore.CYAN}Cleaned up {cleaned_count} audio resources{Fore.RESET}")
 
 if __name__ == "__main__":
     try:
@@ -511,6 +521,10 @@ if __name__ == "__main__":
         if led_matrix:
             led_matrix.set_waiting()
         cleanup_all_detectors()
+        
+        # Perform targeted garbage collection to clean up audio resources
+        cleaned_count = targeted_gc()
+        print(f"{Fore.CYAN}Cleaned up {cleaned_count} audio resources{Fore.RESET}")
     except Exception as e:
         print(f"\n{Fore.RED}Fatal error: {e}{Fore.RESET}")
         import traceback
@@ -518,3 +532,9 @@ if __name__ == "__main__":
         if led_matrix:
             led_matrix.set_waiting()
         cleanup_all_detectors()
+        
+        # Still try to clean up audio resources
+        try:
+            targeted_gc()
+        except:
+            pass
