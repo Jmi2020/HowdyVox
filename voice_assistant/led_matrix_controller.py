@@ -37,12 +37,36 @@ class LEDMatrixController:
     def _check_connection(self):
         """Check if the ESP32 is reachable and working."""
         try:
+            # Print debug information first
+            print(f"{Fore.CYAN}DEBUG: Checking connection to ESP32 at {self.esp32_ip}{Fore.RESET}")
+            print(f"{Fore.CYAN}DEBUG: State URL: {self.state_url}{Fore.RESET}")
+            print(f"{Fore.CYAN}DEBUG: Speak URL: {self.speak_url}{Fore.RESET}")
+            
             # Send a test request
-            self.set_waiting()
+            response = requests.post(self.state_url, data={"state": "waiting"}, timeout=5.0)
+            print(f"{Fore.CYAN}DEBUG: Connection test response code: {response.status_code}{Fore.RESET}")
+            
+            if response.status_code == 200:
+                # Set current state
+                self.current_state = "waiting"
+                logging.info(f"{Fore.GREEN}Successfully connected to ESP32 LED Matrix at {self.esp32_ip}{Fore.RESET}")
+                return True
+            else:
+                logging.error(f"{Fore.RED}Failed to connect to ESP32 LED Matrix. Status code: {response.status_code}{Fore.RESET}")
+                self.enabled = False
+                return False
+        except Exception as e:
+            logging.error(f"{Fore.RED}Failed to connect to ESP32 LED Matrix: {e}{Fore.RESET}")
+            self.enabled = False
+            return False
+            
+            # Log success
             logging.info(f"{Fore.GREEN}Successfully connected to ESP32 LED Matrix at {self.esp32_ip}{Fore.RESET}")
+            print(f"{Fore.GREEN}Successfully connected to ESP32 LED Matrix at {self.esp32_ip}{Fore.RESET}")
             return True
         except Exception as e:
             logging.error(f"{Fore.RED}Failed to connect to ESP32 LED Matrix: {e}{Fore.RESET}")
+            print(f"{Fore.RED}Failed to connect to ESP32 LED Matrix: {e}{Fore.RESET}")
             self.enabled = False
             return False
     
@@ -67,14 +91,28 @@ class LEDMatrixController:
             bool: True if the update was successful, False otherwise
         """
         if not self.enabled:
+            print(f"{Fore.YELLOW}WARNING: LED Matrix disabled. Skipping state update to: {state}{Fore.RESET}")
             return False
             
         # Don't send duplicate state updates
         if state == self.current_state:
+            print(f"{Fore.CYAN}State already set to {state}, skipping update{Fore.RESET}")
             return True
             
         try:
             with self.lock:
+                print(f"{Fore.CYAN}Sending state update to LED Matrix: {state}{Fore.RESET}")
+                response = requests.post(self.state_url, data={"state": state}, timeout=3.0)
+                
+                if response.status_code == 200:
+                    logging.info(f"{Fore.CYAN}LED Matrix state updated to: {state}{Fore.RESET}")
+                    print(f"{Fore.GREEN}✓ LED Matrix state updated to: {state}{Fore.RESET}")
+                    self.current_state = state
+                    return True
+                else:
+                    logging.warning(f"{Fore.YELLOW}Failed to update LED Matrix state. Status code: {response.status_code}{Fore.RESET}")
+                    print(f"{Fore.YELLOW}✗ Failed to update LED Matrix state. Status code: {response.status_code}{Fore.RESET}")
+                    return False
                 response = requests.post(self.state_url, data={"state": state}, timeout=2.0)
                 
                 if response.status_code == 200:
@@ -99,6 +137,7 @@ class LEDMatrixController:
             bool: True if successful, False otherwise
         """
         if not self.enabled:
+            print(f"{Fore.YELLOW}WARNING: LED Matrix disabled. Skipping speaking update{Fore.RESET}")
             return False
             
         try:
@@ -107,30 +146,47 @@ class LEDMatrixController:
                 encoded_text = quote(text)
                 
                 # Log that we're sending the full text
-                logging.debug(f"{Fore.CYAN}Sending full text to LED Matrix: {text}{Fore.RESET}")
+                text_length = len(text)
+                preview = f"{text[:50]}{'...' if text_length > 50 else ''}"
+                print(f"{Fore.CYAN}Sending text to LED Matrix ({text_length} chars): \"{preview}\"{Fore.RESET}")
                 
-                # Try the POST method first (may be what the ESP32 expects)
+                # Try the /speak endpoint first
                 try:
-                    logging.info(f"{Fore.CYAN}Attempting to send text to LED Matrix using POST method{Fore.RESET}")
-                    response = requests.post(self.speak_url, data={"text": encoded_text}, timeout=2.0)
+                    print(f"{Fore.CYAN}Sending to /speak endpoint{Fore.RESET}")
+                    response = requests.post(self.speak_url, data={"text": text}, timeout=3.0)
                     
                     if response.status_code == 200:
-                        text_length = len(text)
-                        preview = f"{text[:50]}{'...' if text_length > 50 else ''}"
+                        print(f"{Fore.GREEN}✓ LED Matrix set to speaking mode with text{Fore.RESET}")
                         logging.info(f"{Fore.CYAN}LED Matrix set to speaking mode with text ({text_length} chars): {preview}{Fore.RESET}")
                         self.current_state = "speaking"
                         return True
                     else:
-                        logging.warning(f"{Fore.YELLOW}POST method failed with status code: {response.status_code}{Fore.RESET}")
+                        print(f"{Fore.YELLOW}✗ /speak endpoint failed with status code: {response.status_code}{Fore.RESET}")
+                        logging.warning(f"{Fore.YELLOW}/speak endpoint failed with status code: {response.status_code}{Fore.RESET}")
                 
                 except Exception as e:
-                    logging.warning(f"{Fore.YELLOW}POST method failed: {e}{Fore.RESET}")
+                    print(f"{Fore.YELLOW}✗ /speak endpoint failed: {e}{Fore.RESET}")
+                    logging.warning(f"{Fore.YELLOW}/speak endpoint failed: {e}{Fore.RESET}")
                 
-                # If POST failed, try the direct state change method 
-                # (The ESP32 might only support /state endpoint)
+                # If /speak failed, try the /state endpoint
                 try:
-                    logging.info(f"{Fore.CYAN}Trying alternative method using state endpoint{Fore.RESET}")
+                    print(f"{Fore.CYAN}Trying alternative method using /state endpoint{Fore.RESET}")
                     # Use the regular state endpoint with 'speaking' state and text as parameter
+                    response = requests.post(self.state_url, data={"state": "speaking", "text": text}, timeout=3.0)
+                    
+                    if response.status_code == 200:
+                        print(f"{Fore.GREEN}✓ LED Matrix set to speaking mode using /state endpoint{Fore.RESET}")
+                        logging.info(f"{Fore.CYAN}LED Matrix set to speaking mode with state endpoint ({text_length} chars): {preview}{Fore.RESET}")
+                        self.current_state = "speaking"
+                        return True
+                    else:
+                        print(f"{Fore.YELLOW}✗ /state endpoint method failed with status code: {response.status_code}{Fore.RESET}")
+                        logging.warning(f"{Fore.YELLOW}/state endpoint method failed with status code: {response.status_code}{Fore.RESET}")
+                        
+                except Exception as e:
+                    print(f"{Fore.YELLOW}✗ /state endpoint method failed: {e}{Fore.RESET}")
+                    logging.warning(f"{Fore.YELLOW}/state endpoint method failed: {e}{Fore.RESET}")
+                
                     response = requests.post(self.state_url, data={"state": "speaking", "text": encoded_text}, timeout=2.0)
                     
                     if response.status_code == 200:
@@ -146,13 +202,18 @@ class LEDMatrixController:
                     logging.warning(f"{Fore.YELLOW}State endpoint method failed: {e}{Fore.RESET}")
                 
                 # If all methods failed, log the error details and return failure
+                print(f"{Fore.RED}⚠ All methods to set LED Matrix to speaking mode failed.{Fore.RESET}")
+                print(f"{Fore.RED}⚠ Check that the ESP32 has the correct endpoints implemented.{Fore.RESET}")
+                print(f"{Fore.RED}⚠ Expected endpoints: {self.speak_url} or {self.state_url} with speaking state{Fore.RESET}")
                 logging.error(f"{Fore.RED}All methods to set LED Matrix to speaking mode failed.{Fore.RESET}")
                 logging.error(f"{Fore.RED}Check that the ESP32 has the correct endpoints implemented.{Fore.RESET}")
                 logging.error(f"{Fore.RED}Expected endpoints: {self.speak_url} or {self.state_url} with speaking state{Fore.RESET}")
                 return False
                 
         except Exception as e:
+            print(f"{Fore.RED}⚠ Error setting LED Matrix to speaking mode: {e}{Fore.RESET}")
             logging.error(f"{Fore.RED}Error setting LED Matrix to speaking mode: {e}{Fore.RESET}")
+            return False
             return False
     
     def set_listening(self):
