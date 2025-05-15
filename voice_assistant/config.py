@@ -40,7 +40,7 @@ class Config:
         "Reject extremes of cheer or gloom; aim for a steady gray. " + 
         "Write with precision and substance." + 
         "Expand only when complexity demands, then resume brevity. " + 
-        "Question assumptions intelligently without dwelling in despair. " 
+        "Question assumptions intelligently without dwelling in despair. "
     )
     
     # Path for local models

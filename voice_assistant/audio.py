@@ -41,9 +41,9 @@ def detect_leading_silence(sound, silence_threshold=-50, chunk_size=10):
     return trim_ms
 
 
-def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energy_threshold=2000, 
-                 pause_threshold=1, phrase_threshold=0.1, dynamic_energy_threshold=True, 
-                 calibration_duration=1, is_wake_word_response=False):
+def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energy_threshold=3500, 
+                 pause_threshold=0.8, phrase_threshold=0.3, dynamic_energy_threshold=False, 
+                 calibration_duration=1.5, is_wake_word_response=False):
     """
     Record audio from the microphone and save it as an MP3 file.
     
@@ -74,9 +74,17 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
     for attempt in range(retries):
         try:
             with sr.Microphone() as source:
-                logging.info("Calibrating for ambient noise...")
+                logging.info(f"Calibrating for ambient noise (threshold: {recognizer.energy_threshold})...")
                 # Longer calibration to better detect ambient noise levels
                 recognizer.adjust_for_ambient_noise(source, duration=calibration_duration)
+                
+                # Log the post-calibration energy threshold
+                logging.info(f"Post-calibration energy threshold: {recognizer.energy_threshold}")
+                
+                # If dynamic threshold is disabled, ensure minimum threshold is maintained
+                if not dynamic_energy_threshold and recognizer.energy_threshold < energy_threshold:
+                    recognizer.energy_threshold = energy_threshold
+                    logging.info(f"Enforcing minimum energy threshold: {recognizer.energy_threshold}")
                 
                 # Wait a short moment to ensure any activation sounds have completely stopped
                 time.sleep(0.5)
