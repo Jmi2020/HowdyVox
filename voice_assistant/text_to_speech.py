@@ -27,6 +27,37 @@ chunk_queue = queue.Queue()
 # Flag to signal generation is complete
 generation_complete = threading.Event()
 
+def clean_text_for_tts(text):
+    """
+    Clean text before sending to TTS by removing formatting characters like asterisks.
+    
+    Args:
+        text (str): The input text to clean
+        
+    Returns:
+        str: The cleaned text suitable for TTS
+    """
+    # Remove markdown emphasis patterns (both *word* and **word**)
+    cleaned_text = re.sub(r'\*+([^*]+)\*+', r'\1', text)
+    
+    # Also handle standalone asterisks that might remain
+    cleaned_text = cleaned_text.replace('*', '')
+    
+    # Remove other potential markdown formatting
+    cleaned_text = cleaned_text.replace('_', '')  # Remove underscores used for emphasis
+    cleaned_text = cleaned_text.replace('`', '')  # Remove backticks used for code
+    
+    # Clean up any potential double spaces created by removing characters
+    cleaned_text = ' '.join(cleaned_text.split())
+    
+    # Log original vs cleaned text if there was a change
+    if cleaned_text != text:
+        logging.info(f"Cleaned text for TTS - Removed formatting characters")
+        logging.debug(f"Original: '{text}' -> Cleaned: '{cleaned_text}'")
+    
+    return cleaned_text
+
+
 def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, local_model_path:str=None):
     """
     Convert text to speech using persistent Kokoro ONNX model instance.
@@ -66,8 +97,11 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
             file_ext = os.path.splitext(output_file_path)[1]
             output_format = '.wav'  # Always use WAV for better compatibility
             
+            # Clean the text to remove asterisks and other formatting
+            cleaned_text = clean_text_for_tts(text)
+            
             # Split text into manageable chunks
-            chunks = split_text_into_chunks(text, max_chars=200)
+            chunks = split_text_into_chunks(cleaned_text, max_chars=200)
             logging.info(f"Split text into {len(chunks)} chunks")
             
             # Get the persistent Kokoro model instance
