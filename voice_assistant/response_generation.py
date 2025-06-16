@@ -4,6 +4,42 @@ import logging
 import ollama
 from voice_assistant.config import Config
 
+def preload_ollama_model():
+    """
+    Preload the Ollama model into memory by making a simple test request.
+    This ensures the model is ready for use when the first real request comes in.
+    
+    Returns:
+    bool: True if the model was successfully preloaded, False otherwise.
+    """
+    try:
+        logging.info(f"Preloading Ollama model: {Config.OLLAMA_LLM}")
+        
+        # Make a simple test request to load the model into memory
+        test_messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Hello"}
+        ]
+        
+        # Use minimal options for the preload test
+        test_options = {
+            "temperature": 0.1,
+            "num_predict": 5,  # Very short response to minimize wait time
+        }
+        
+        response = ollama.chat(
+            model=Config.OLLAMA_LLM,
+            messages=test_messages,
+            options=test_options,
+        )
+        
+        logging.info(f"Ollama model {Config.OLLAMA_LLM} preloaded successfully")
+        return True
+        
+    except Exception as e:
+        logging.error(f"Failed to preload Ollama model: {e}")
+        return False
+
 def generate_response(model:str, api_key:str, chat_history:list, local_model_path:str=None):
     """
     Generate a response using Ollama.

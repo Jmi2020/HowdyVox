@@ -41,7 +41,7 @@ def detect_leading_silence(sound, silence_threshold=-50, chunk_size=10):
     return trim_ms
 
 
-def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energy_threshold=3500, 
+def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energy_threshold=1200, 
                  pause_threshold=0.8, phrase_threshold=0.3, dynamic_energy_threshold=False, 
                  calibration_duration=1.5, is_wake_word_response=False):
     """
@@ -150,15 +150,15 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
                     # Release the buffer even if an error occurs
                     release_audio_buffer(buffer)
                     raise e
-                return
+                return True  # Successfully recorded audio
         except sr.WaitTimeoutError:
             logging.warning(f"Listening timed out, retrying... ({attempt + 1}/{retries})")
         except Exception as e:
             logging.error(f"Failed to record audio: {e}")
-            if attempt == retries -1:
-                raise
+            # Don't raise on final attempt, just log and continue to next attempt or return False
         
     logging.error("Recording failed after all retries")
+    return False  # Failed to record audio
 
 def play_audio(file_path):
     """

@@ -9,8 +9,8 @@ import re
 from colorama import Fore, init
 from voice_assistant.audio import record_audio, play_audio
 from voice_assistant.transcription import transcribe_audio
-from voice_assistant.response_generation import generate_response
-from voice_assistant.text_to_speech import text_to_speech, get_next_chunk, generation_complete
+from voice_assistant.response_generation import generate_response, preload_ollama_model
+from voice_assistant.text_to_speech import text_to_speech, get_next_chunk, get_chunk_generation_stats, generation_complete
 from voice_assistant.utils import delete_file, targeted_gc
 from voice_assistant.config import Config
 from voice_assistant.api_key_manager import get_transcription_api_key, get_response_api_key, get_tts_api_key
@@ -229,6 +229,18 @@ def main():
         print(Fore.RED + f"Warning: Failed to preload Kokoro TTS model: {e}" + Fore.RESET)
         print(Fore.YELLOW + "Will attempt to load on first use" + Fore.RESET)
     
+    # Preload Ollama model
+    print(Fore.YELLOW + "Initializing Ollama LLM model..." + Fore.RESET)
+    try:
+        if preload_ollama_model():
+            print(Fore.GREEN + "Ollama LLM model loaded successfully!" + Fore.RESET)
+        else:
+            print(Fore.RED + f"Warning: Failed to preload Ollama model: {Config.OLLAMA_LLM}" + Fore.RESET)
+            print(Fore.YELLOW + "Will attempt to load on first use" + Fore.RESET)
+    except Exception as e:
+        print(Fore.RED + f"Warning: Failed to preload Ollama model: {e}" + Fore.RESET)
+        print(Fore.YELLOW + "Will attempt to load on first use" + Fore.RESET)
+    
     # Initialize chat history
     chat_history = [
         {"role": "system", "content": """ You are a helpful Assistant called Howdy. 
@@ -301,10 +313,38 @@ def main():
             apply_wake_word_filter = is_first_turn_after_wake.is_set()
             
             # Record audio with the appropriate flag
-            record_audio(Config.INPUT_AUDIO, is_wake_word_response=apply_wake_word_filter)
+            recording_success = record_audio(Config.INPUT_AUDIO, is_wake_word_response=apply_wake_word_filter)
             
             # Clear the first turn flag after recording
             is_first_turn_after_wake.clear()
+
+            # Check if recording was successful
+            if not recording_success:
+                logging.warning("Failed to record audio, returning to wake word detection")
+                # Clear wake word detection flag and conversation state
+                wake_word_detected.clear()
+                conversation_active.clear()
+                # Reset LED matrix to waiting
+                if led_matrix:
+                    led_matrix.set_waiting()
+                print(Fore.YELLOW + "Sorry, I'm having trouble hearing you. Say 'Hey Howdy' to try again!" + Fore.RESET)
+                
+                # Aggressive cleanup to prevent memory leaks and segfaults
+                logging.info("Performing aggressive cleanup after recording failure...")
+                cleanup_all_detectors()
+                import gc
+                gc.collect()
+                time.sleep(0.5)  # Brief pause for cleanup
+                
+                # Force restart wake word detection
+                if not safe_start_wake_word_detection():
+                    logging.error("Failed to restart wake word detection after recording failure")
+                    time.sleep(2)
+                    if not safe_start_wake_word_detection():
+                        logging.error("Failed to restart wake word detection on second attempt")
+                        break  # Exit main loop if we can't restart wake word detection
+                
+                continue  # Go back to wake word detection
 
             # Get the API key for transcription (will be None for FastWhisperAPI)
             transcription_api_key = get_transcription_api_key()
@@ -327,6 +367,8 @@ def main():
                         Config.LOCAL_MODEL_PATH
                     )
                     if success:
+                        # Brief delay to prevent TTS stuttering on immediate feedback
+                        time.sleep(0.1)
                         play_audio(first_chunk_file)
                         delete_file(first_chunk_file)
                     continue
@@ -364,6 +406,8 @@ def main():
                     Config.LOCAL_MODEL_PATH
                 )
                 if success:
+                    # Brief delay to prevent TTS stuttering on conversation end
+                    time.sleep(0.1)
                     play_audio(first_chunk_file)
                     delete_file(first_chunk_file)
                 
@@ -421,14 +465,30 @@ def main():
             if led_matrix:
                 led_matrix.set_speaking(response_text)
             
+            # Determine adaptive delays based on response complexity
+            response_length = len(response_text)
+            logging.info(f"Response length: {response_length} characters")
+            
+            if response_length < 100:
+                playback_delay = 0.1  # Short responses
+            elif response_length < 500:
+                playback_delay = 0.2  # Medium responses
+            else:
+                playback_delay = 0.3  # Long responses - more stabilization time
+            
             # Get just the first chunk
-            success, first_chunk_file = text_to_speech(
-                Config.TTS_MODEL, 
-                tts_api_key, 
-                response_text, 
-                output_file, 
-                Config.LOCAL_MODEL_PATH
-            )
+            try:
+                success, first_chunk_file = text_to_speech(
+                    Config.TTS_MODEL, 
+                    tts_api_key, 
+                    response_text, 
+                    output_file, 
+                    Config.LOCAL_MODEL_PATH
+                )
+            except Exception as tts_error:
+                logging.error(f"TTS generation failed: {tts_error}")
+                success = False
+                first_chunk_file = None
             
             # List to track files for cleanup
             files_to_cleanup = []
@@ -437,32 +497,74 @@ def main():
                 # Add first chunk to cleanup list
                 files_to_cleanup.append(first_chunk_file)
                 
-                # Define a thread to handle playback of all chunks
+                # Define a thread to handle playback of all chunks with enhanced monitoring and timing
                 def play_all_chunks():
                     try:
-                        # Play the first chunk immediately
-                        logging.info(f"Playing first chunk (immediately)")
-                        play_audio(first_chunk_file)
+                        # Enhanced adaptive delay with detailed logging
+                        logging.info(f"Using {playback_delay:.3f}s stabilization delay for {response_length} character response")
+                        time.sleep(playback_delay)
                         
-                        # Continue playing chunks as they become available
+                        # Play the first chunk after the stabilization delay with timing
+                        first_chunk_start = time.time()
+                        logging.info(f"Starting playback of first chunk after {playback_delay:.3f}s stabilization")
+                        play_audio(first_chunk_file)
+                        first_chunk_duration = time.time() - first_chunk_start
+                        logging.info(f"First chunk playback completed in {first_chunk_duration:.3f}s")
+                        
+                        # Continue playing chunks with enhanced monitoring and gap analysis
                         chunk_index = 1
+                        last_chunk_time = time.time()
+                        total_gaps = []
+                        
                         while True:
+                            # Get comprehensive generation stats for debugging
+                            stats = get_chunk_generation_stats()
+                            
                             # Check if there are more chunks to play
                             next_chunk = get_next_chunk()
                             
                             # If no more chunks and generation is complete, we're done
                             if next_chunk is None and generation_complete.is_set():
+                                avg_gap = sum(total_gaps) / len(total_gaps) if total_gaps else 0
+                                logging.info(f"All chunks played successfully. Average inter-chunk gap: {avg_gap:.3f}s")
                                 break
                             
-                            # If we got a chunk, play it
+                            # If we got a chunk, play it with enhanced monitoring
                             if next_chunk:
+                                current_time = time.time()
+                                inter_chunk_time = current_time - last_chunk_time
+                                total_gaps.append(inter_chunk_time)
+                                
                                 files_to_cleanup.append(next_chunk)
-                                logging.info(f"Playing next chunk ({chunk_index+1})")
+                                
+                                # Enhanced gap monitoring with more detailed analysis
+                                if inter_chunk_time > 2.5:
+                                    logging.warning(f"Long gap detected: {inter_chunk_time:.3f}s before chunk {chunk_index+1}")
+                                    # Brief stabilization for very long gaps
+                                    time.sleep(0.05)
+                                elif inter_chunk_time > 1.5:
+                                    logging.info(f"Moderate gap: {inter_chunk_time:.3f}s before chunk {chunk_index+1}")
+                                
+                                chunk_play_start = time.time()
+                                logging.info(f"Playing chunk {chunk_index+1} (gap: {inter_chunk_time:.3f}s, queue_size: {stats['queue_size']})")
                                 play_audio(next_chunk)
+                                chunk_play_time = time.time() - chunk_play_start
+                                logging.debug(f"Chunk {chunk_index+1} playback took {chunk_play_time:.3f}s")
+                                
                                 chunk_index += 1
+                                last_chunk_time = current_time
                             else:
-                                # Short wait to check again for new chunks
-                                time.sleep(0.1)
+                                # Enhanced adaptive wait time based on generation state
+                                if stats['generation_complete']:
+                                    logging.debug("Generation complete, no more chunks expected")
+                                    break
+                                elif stats['queue_empty']:
+                                    # If generation is still active but queue is empty, wait longer
+                                    logging.debug(f"Queue empty, generation status: {stats['status']}, waiting...")
+                                    time.sleep(0.25)  # Slightly longer wait
+                                else:
+                                    # Short wait to check again for new chunks
+                                    time.sleep(0.1)
                     
                     except Exception as e:
                         logging.error(f"Error in playback thread: {str(e)}")
@@ -500,6 +602,20 @@ def main():
             traceback.print_exc()
             delete_file(Config.INPUT_AUDIO)
             playback_complete_event.set()
+            
+            # Reset states to return to wake word detection
+            wake_word_detected.clear()
+            conversation_active.clear()
+            if led_matrix:
+                led_matrix.set_waiting()
+            
+            # Explicitly restart wake word detection after error
+            cleanup_all_detectors()  # Force cleanup first
+            time.sleep(2)  # Give more time for cleanup
+            if not safe_start_wake_word_detection():
+                logging.error("Failed to restart wake word detection after error")
+                time.sleep(3)  # Wait longer before continuing
+            
             time.sleep(1)
     
     # Cleanup

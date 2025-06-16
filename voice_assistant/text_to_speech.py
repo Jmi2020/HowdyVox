@@ -7,8 +7,37 @@ import nltk
 import re
 import threading
 import queue
+import time
 from voice_assistant.config import Config
 from voice_assistant.kokoro_manager import KokoroManager
+
+# Adaptive timing thresholds for chunking and buffering
+ADAPTIVE_TIMING_THRESHOLDS = [
+    {
+        "length": 100,
+        "max_chars": 150,
+        "initial_delay": 0.05,
+        "chunk_buffer_delay": 0.02
+    },
+    {
+        "length": 300,
+        "max_chars": 180,
+        "initial_delay": 0.08,
+        "chunk_buffer_delay": 0.05
+    },
+    {
+        "length": 800,
+        "max_chars": 200,
+        "initial_delay": 0.12,
+        "chunk_buffer_delay": 0.08
+    },
+    {
+        "length": float("inf"),
+        "max_chars": 220,
+        "initial_delay": 0.15,
+        "chunk_buffer_delay": 0.1
+    }
+]
 
 # Initialize NLTK if needed
 try:
@@ -60,8 +89,8 @@ def clean_text_for_tts(text):
 
 def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, local_model_path:str=None):
     """
-    Convert text to speech using persistent Kokoro ONNX model instance.
-    Returns ONLY the first chunk immediately for fast response time, and puts the rest in a queue.
+    Convert text to speech using persistent Kokoro ONNX model instance with adaptive buffering.
+    Uses intelligent chunk sizing and pre-buffering to prevent stuttering on longer texts.
     
     Args:
     model (str): Should always be 'kokoro'.
@@ -100,9 +129,19 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
             # Clean the text to remove asterisks and other formatting
             cleaned_text = clean_text_for_tts(text)
             
-            # Split text into manageable chunks
-            chunks = split_text_into_chunks(cleaned_text, max_chars=200)
-            logging.info(f"Split text into {len(chunks)} chunks")
+            # Enhanced adaptive chunk sizing with improved timing using configurable thresholds
+            text_length = len(cleaned_text)
+            for threshold in ADAPTIVE_TIMING_THRESHOLDS:
+                if text_length < threshold["length"]:
+                    max_chars = threshold["max_chars"]
+                    initial_delay = threshold["initial_delay"]
+                    chunk_buffer_delay = threshold["chunk_buffer_delay"]
+                    break
+
+            # Split text into adaptively-sized chunks with enhanced buffering info
+            chunks = split_text_into_chunks(cleaned_text, max_chars=max_chars)
+            logging.info(f"Split text into {len(chunks)} chunks (adaptive size: {max_chars} chars, text length: {text_length})")
+            logging.info(f"Using timing strategy: initial_delay={initial_delay:.3f}s, buffer_delay={chunk_buffer_delay:.3f}s")
             
             # Get the persistent Kokoro model instance
             kokoro = KokoroManager.get_instance(local_model_path=local_model_path)
@@ -114,11 +153,14 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
             if not chunks or not chunks[0].strip():
                 return False, None
             
-            # Generate ONLY the first chunk in the main thread
+            # Generate ONLY the first chunk in the main thread with timing
             first_chunk = chunks[0]
             first_chunk_file = f"{file_base}_chunk_0{output_format}"
             
             try:
+                # Track timing for first chunk generation
+                first_chunk_start = time.time()
+                
                 # Generate audio for first chunk
                 samples, sample_rate = kokoro.create(
                     first_chunk, 
@@ -129,12 +171,22 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                 
                 # Save the audio file
                 sf.write(first_chunk_file, samples, sample_rate)
-                logging.info(f"Generated chunk 1/{len(chunks)}: {first_chunk_file}")
                 
-                # Start a background thread to generate the rest of the chunks
+                first_chunk_time = time.time() - first_chunk_start
+                logging.info(f"Generated chunk 1/{len(chunks)}: {first_chunk_file} (took {first_chunk_time:.3f}s)")
+                
+                # Enhanced background thread with adaptive pre-buffering
                 def generate_remaining_chunks():
                     try:
-                        # Process each remaining chunk
+                        # Enhanced buffering strategy for longer texts
+                        if len(chunks) > 3:
+                            logging.info(f"Using enhanced buffering strategy for {len(chunks)} chunks")
+                            # For very long texts, add extra stabilization between chunks
+                            inter_chunk_stabilization = chunk_buffer_delay
+                        else:
+                            inter_chunk_stabilization = 0.02  # Minimal delay for shorter texts
+                        
+                        # Process each remaining chunk with enhanced timing
                         for i, chunk in enumerate(chunks[1:], start=1):
                             if not chunk.strip():
                                 continue
@@ -142,20 +194,28 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                             chunk_file = f"{file_base}_chunk_{i}{output_format}"
                             
                             try:
+                                chunk_start_time = time.time()
+                                
+                                # Apply inter-chunk stabilization delay for better audio quality
+                                if i > 1 and inter_chunk_stabilization > 0:
+                                    time.sleep(inter_chunk_stabilization)
+                                
                                 # Generate audio for this chunk
                                 samples, sample_rate = kokoro.create(
                                     chunk, 
                                     voice=voice_model, 
-                                    speed=Config.KOKORO_SPEED,  # Use config value instead of hardcoded 1.0
+                                    speed=Config.KOKORO_SPEED,
                                     lang="en-us"
                                 )
                                 
                                 # Save the audio file
                                 sf.write(chunk_file, samples, sample_rate)
                                 
+                                chunk_generation_time = time.time() - chunk_start_time
+                                
                                 # Add this chunk to the queue
                                 chunk_queue.put(chunk_file)
-                                logging.info(f"Generated chunk {i+1}/{len(chunks)}: {chunk_file}")
+                                logging.info(f"Generated chunk {i+1}/{len(chunks)}: {chunk_file} (took {chunk_generation_time:.3f}s)")
                                 
                             except Exception as e:
                                 logging.error(f"Error generating chunk {i+1}: {str(e)}")
@@ -164,15 +224,31 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                     finally:
                         # Signal that generation is complete
                         generation_complete.set()
+                        logging.info("Background chunk generation completed")
                 
-                # Start the background thread if there are more chunks
+                # Start the background thread if there are more chunks with enhanced startup
                 if len(chunks) > 1:
                     thread = threading.Thread(target=generate_remaining_chunks)
                     thread.daemon = True
                     thread.start()
+                    
+                    # Enhanced adaptive head start with improved timing for different text lengths
+                    if len(chunks) > 5:
+                        # Very long texts: maximum stabilization time
+                        head_start_delay = initial_delay + 0.05
+                    elif len(chunks) > 3:
+                        # Long texts: use the adaptive delay
+                        head_start_delay = initial_delay
+                    else:
+                        # Shorter texts: reduced delay to maintain responsiveness
+                        head_start_delay = max(0.08, initial_delay - 0.02)
+                    
+                    time.sleep(head_start_delay)
+                    logging.info(f"Background chunk generation started with {head_start_delay:.3f}s head start for {len(chunks)} chunks")
                 else:
-                    # If only one chunk, signal completion
+                    # If only one chunk, signal completion immediately
                     generation_complete.set()
+                    logging.info("Single chunk generation - no background processing needed")
                 
                 # Return success and the path to the first chunk
                 return True, first_chunk_file
@@ -192,24 +268,67 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
 
 def get_next_chunk():
     """
-    Get the next chunk from the queue.
+    Get the next chunk from the queue with enhanced timeout handling and monitoring.
     
     Returns:
     str or None: Path to the next chunk file, or None if no more chunks
     """
     try:
         if not chunk_queue.empty():
-            return chunk_queue.get_nowait()
+            chunk = chunk_queue.get_nowait()
+            logging.debug(f"Retrieved chunk from queue (queue size now: {chunk_queue.qsize()})")
+            return chunk
         elif generation_complete.is_set():
+            logging.debug("No more chunks - generation complete")
             return None
         else:
-            # Wait for a chunk to be added to the queue, with a timeout
-            try:
-                return chunk_queue.get(timeout=0.5)
-            except queue.Empty:
-                return None
-    except:
+            # Enhanced adaptive timeout based on queue state and generation progress
+            base_timeout = 0.6  # Slightly increased base timeout
+            
+            # If queue is empty but generation isn't complete, implement progressive timeout
+            if chunk_queue.empty() and not generation_complete.is_set():
+                # First try a short wait
+                try:
+                    chunk = chunk_queue.get(timeout=base_timeout)
+                    logging.debug("Retrieved chunk after standard wait")
+                    return chunk
+                except queue.Empty:
+                    # If still empty, try an extended timeout for complex processing
+                    extended_timeout = 2.5  # Slightly longer for very complex chunks
+                    try:
+                        chunk = chunk_queue.get(timeout=extended_timeout)
+                        logging.info("Retrieved chunk after extended wait - possible complex generation")
+                        return chunk
+                    except queue.Empty:
+                        logging.warning("Extended timeout reached - generation may be experiencing issues")
+                        return None
+            else:
+                try:
+                    chunk = chunk_queue.get(timeout=base_timeout)
+                    logging.debug("Retrieved chunk with standard timeout")
+                    return chunk
+                except queue.Empty:
+                    logging.debug("No chunk available within timeout")
+                    return None
+    except Exception as e:
+        logging.error(f"Error getting next chunk: {e}")
         return None
+
+
+def get_chunk_generation_stats():
+    """
+    Get comprehensive statistics about chunk generation for debugging and monitoring.
+    
+    Returns:
+    dict: Detailed statistics about current generation state
+    """
+    return {
+        'queue_size': chunk_queue.qsize(),
+        'generation_complete': generation_complete.is_set(),
+        'queue_empty': chunk_queue.empty(),
+        'timestamp': time.time(),
+        'status': 'complete' if generation_complete.is_set() else ('generating' if not chunk_queue.empty() else 'waiting')
+    }
 
 def split_text_into_chunks(text, max_chars=150):
     """
