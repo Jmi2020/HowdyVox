@@ -58,6 +58,28 @@ class Config:
     ESP32_IP = os.getenv("ESP32_IP", None)  # IP address of the ESP32-S3
     USE_LED_MATRIX = ESP32_IP is not None   # Enable LED matrix if IP is provided
 
+    # Voice Activity Detection Settings
+    USE_INTELLIGENT_VAD = True  # Enable neural network VAD
+    
+    # VAD Timing Parameters
+    VAD_SAMPLE_RATE = 16000  # Sample rate for VAD processing
+    VAD_CHUNK_DURATION_MS = 32  # Chunk size in milliseconds (Silero VAD requires 32ms)
+    VAD_CONFIDENCE_THRESHOLD = 0.5  # Speech detection confidence (0-1)
+    
+    # Utterance Detection Parameters
+    MIN_UTTERANCE_DURATION = 0.5  # Minimum speech duration in seconds
+    MAX_INITIAL_SILENCE = 10.0  # Maximum silence before speech starts
+    MIN_FINAL_SILENCE = 0.8  # Minimum silence to end utterance
+    MAX_FINAL_SILENCE = 2.0  # Maximum silence before force ending
+    
+    # Pre-speech Buffer
+    PRE_SPEECH_BUFFER_MS = 500  # Buffer before speech detection
+    
+    # Adaptive Pause Factors
+    QUESTION_PAUSE_FACTOR = 0.7  # Multiplier for pauses after questions
+    INCOMPLETE_PAUSE_FACTOR = 1.5  # Multiplier for incomplete sentences
+    FILLER_PAUSE_FACTOR = 1.8  # Multiplier after filler words
+
     @staticmethod
     def validate_config():
         """

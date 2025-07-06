@@ -52,7 +52,7 @@ The Text-to-Speech (TTS) system was experiencing stuttering issues with the firs
 ### Automated Test
 Run the test script to verify the fix:
 ```bash
-python test_tts_fix.py
+python Tests_Fixes/test_tts_fix.py
 ```
 
 This script tests:

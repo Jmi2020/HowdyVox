@@ -100,6 +100,7 @@ kokoro-v1.0.onnx
 
 # Test files
 VoiceBlending.txt
+Tests_Fixes/
 
 # Artifacts
 howdy_Opt.md

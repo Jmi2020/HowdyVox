@@ -13,6 +13,8 @@ import wave
 import os
 import subprocess
 from voice_assistant.utils import get_audio_buffer, release_audio_buffer
+from voice_assistant.enhanced_audio import record_audio_enhanced
+from voice_assistant.config import Config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -47,6 +49,8 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
     """
     Record audio from the microphone and save it as an MP3 file.
     
+    This function now uses intelligent VAD when enabled in configuration.
+    
     Args:
         file_path: Path to save the MP3 file
         timeout: Maximum time to wait for phrase to start
@@ -59,11 +63,33 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
         calibration_duration: Seconds to calibrate microphone for ambient noise
         is_wake_word_response: Whether this is recording after wake word detection (forces trim)
     """
-    # Import here to avoid circular import
-    from voice_assistant.config import Config
-    
     # Make sure temp audio directory exists
     os.makedirs(Config.TEMP_AUDIO_DIR, exist_ok=True)
+    
+    # Check if intelligent VAD is enabled
+    if Config.USE_INTELLIGENT_VAD:
+        logging.info("Using intelligent VAD for recording")
+        
+        # Use the enhanced recorder
+        for attempt in range(retries):
+            success = record_audio_enhanced(
+                file_path=file_path,
+                timeout=timeout,
+                phrase_time_limit=phrase_time_limit,
+                is_wake_word_response=is_wake_word_response
+            )
+            
+            if success:
+                return True
+            
+            logging.warning(f"Recording attempt {attempt + 1} failed, retrying...")
+        
+        logging.error("All recording attempts failed")
+        return False
+    
+    else:
+        # Fall back to original implementation
+        logging.info("Using legacy energy-based VAD")
     
     recognizer = get_recognizer()
     recognizer.energy_threshold = energy_threshold

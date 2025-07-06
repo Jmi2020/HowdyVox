@@ -50,7 +50,7 @@ This command creates audio with a voice that is 30% Nicole and 70% Michael.
 To explore different blend ratios between two voices:
 
 ```bash
-python test_voice_blending.py --voice1 af_bella --voice2 am_eric --steps 5
+python Tests_Fixes/test_voice_blending.py --voice1 af_bella --voice2 am_eric --steps 5
 ```
 
 This will generate audio samples with different blending ratios between Bella and Eric's voices (0%, 20%, 40%, 60%, 80%, 100% of each voice), allowing you to compare the results.
@@ -107,7 +107,7 @@ python run_voice_assistant.py
 For more sophisticated voice blends, you can try the multi-voice test script:
 
 ```bash
-python test_voice_blending.py --multi-voice
+python Tests_Fixes/test_voice_blending.py --multi-voice
 ```
 
 This generates several interesting combinations:

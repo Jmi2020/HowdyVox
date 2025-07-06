@@ -108,7 +108,7 @@ else:
 ## Testing Framework
 
 ### Comprehensive Test Script
-**File**: `test_tts_fix_enhanced.py`
+**File**: `Tests_Fixes/test_tts_fix_enhanced.py`
 
 **Test coverage:**
 1. **Very Short text** (minimal processing)
@@ -166,7 +166,7 @@ If additional adjustments are needed:
 
 1. **Run Enhanced Test Script**:
    ```bash
-   python test_tts_fix_enhanced.py
+   python Tests_Fixes/test_tts_fix_enhanced.py
    ```
 
 2. **Critical Success Metrics**:

@@ -34,7 +34,7 @@ def main():
     
     # Run the enhanced test
     try:
-        os.system("python test_tts_fix_enhanced.py")
+        os.system("python Tests_Fixes/test_tts_fix_enhanced.py")
     except KeyboardInterrupt:
         print("\n⏹️  Test interrupted by user")
     except Exception as e:
@@ -46,7 +46,7 @@ def main():
     
     print(f"\n📁 Additional files created:")
     print("   • TTS_ENHANCEMENT_IMPLEMENTATION.md - Detailed technical documentation")
-    print("   • test_tts_fix_enhanced.py - Comprehensive test script")
+    print("   • Tests_Fixes/test_tts_fix_enhanced.py - Comprehensive test script")
     
     print(f"\n🔧 If you still experience issues:")
     print("   1. Check the logs for any timing warnings")

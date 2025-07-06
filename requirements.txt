@@ -45,6 +45,7 @@ onnxruntime==1.21.1; platform_machine != "arm64" or platform_system != "Darwin"
 # For Apple Silicon (M-series) Macs - this is the optimized version
 onnxruntime-silicon==1.16.3; platform_machine == "arm64" and platform_system == "Darwin"
 torch>=1.13.0
+torchaudio>=2.0.0  # For Silero VAD neural network voice detection
 kokoro-onnx==0.4.8  # TTS engine for voice synthesis with Apple Silicon support
 
 # Optional: keyboard for hotkeys
