@@ -12,12 +12,52 @@ import pyaudio
 import wave
 import os
 import subprocess
+import platform
 from voice_assistant.utils import get_audio_buffer, release_audio_buffer
 from voice_assistant.enhanced_audio import record_audio_enhanced
 from voice_assistant.config import Config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Platform detection
+IS_MACOS = platform.system() == 'Darwin'
+MACOS_VERSION = None
+
+if IS_MACOS:
+    try:
+        # Get macOS version
+        result = subprocess.run(['sw_vers', '-productVersion'], 
+                              capture_output=True, text=True)
+        version_str = result.stdout.strip()
+        version_parts = version_str.split('.')
+        MACOS_VERSION = float(f"{version_parts[0]}.{version_parts[1]}")
+    except:
+        MACOS_VERSION = 0.0
+
+# Check if we can use voice isolation (macOS 12.0+)
+CAN_USE_VOICE_ISOLATION = IS_MACOS and MACOS_VERSION >= 12.0
+
+# Global recorder instance
+_mac_recorder_instance = None
+
+def get_mac_recorder():
+    """Get or create Mac audio recorder instance."""
+    global _mac_recorder_instance
+    
+    if not CAN_USE_VOICE_ISOLATION:
+        return None
+    
+    if _mac_recorder_instance is None:
+        try:
+            from .mac_audio_recorder import MacAudioRecorder
+            _mac_recorder_instance = MacAudioRecorder()
+            logging.info("Mac audio recorder with voice isolation initialized")
+        except Exception as e:
+            logging.error(f"Failed to initialize Mac audio recorder: {e}")
+            return None
+    
+    return _mac_recorder_instance
 
 @lru_cache(maxsize=None)
 def get_recognizer():
@@ -49,7 +89,7 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
     """
     Record audio from the microphone and save it as an MP3 file.
     
-    This function now uses intelligent VAD when enabled in configuration.
+    This function now automatically uses Mac voice isolation when available.
     
     Args:
         file_path: Path to save the MP3 file
@@ -65,6 +105,40 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
     """
     # Make sure temp audio directory exists
     os.makedirs(Config.TEMP_AUDIO_DIR, exist_ok=True)
+    
+    # Check configuration and platform
+    use_mac_isolation = (
+        Config.USE_MAC_VOICE_ISOLATION and 
+        CAN_USE_VOICE_ISOLATION
+    )
+    
+    if use_mac_isolation:
+        logging.info("Using macOS native voice isolation")
+        recorder = get_mac_recorder()
+        
+        if recorder:
+            # Use Mac recorder with voice isolation
+            for attempt in range(retries):
+                try:
+                    success = recorder.record_audio(
+                        file_path=file_path,
+                        timeout=timeout,
+                        phrase_time_limit=phrase_time_limit,
+                        is_wake_word_response=is_wake_word_response
+                    )
+                    
+                    if success:
+                        return True
+                    
+                    logging.warning(f"Recording attempt {attempt + 1} failed")
+                except Exception as e:
+                    logging.error(f"Mac recording error: {e}")
+                
+                if attempt < retries - 1:
+                    time.sleep(0.5)
+            
+            logging.error("All Mac recording attempts failed")
+            # Fall through to fallback
     
     # Check if intelligent VAD is enabled
     if Config.USE_INTELLIGENT_VAD:

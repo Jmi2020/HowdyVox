@@ -1,6 +1,7 @@
 # voice_assistant/config.py
 
 import os
+import platform
 from dotenv import load_dotenv
 
 # Load environment variables from the .env file
@@ -79,6 +80,20 @@ class Config:
     QUESTION_PAUSE_FACTOR = 0.7  # Multiplier for pauses after questions
     INCOMPLETE_PAUSE_FACTOR = 1.5  # Multiplier for incomplete sentences
     FILLER_PAUSE_FACTOR = 1.8  # Multiplier after filler words
+    
+    # Platform Detection
+    IS_MACOS = platform.system() == 'Darwin'
+    IS_APPLE_SILICON = IS_MACOS and platform.processor() == 'arm'
+    
+    # macOS Voice Isolation Settings
+    USE_MAC_VOICE_ISOLATION = IS_MACOS  # Auto-enable on Mac
+    MAC_VOICE_QUALITY = 'high'  # Options: 'low', 'medium', 'high', 'max'
+    MAC_VOICE_AGC = True  # Automatic Gain Control
+    MAC_VOICE_SAMPLE_RATE = 48000  # Voice isolation works best at 48kHz
+    
+    # Fallback Settings
+    FALLBACK_TO_INTELLIGENT_VAD = True  # If Mac isolation fails
+    FALLBACK_TO_RNNOISE = False  # Secondary fallback
 
     @staticmethod
     def validate_config():

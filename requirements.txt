@@ -12,6 +12,12 @@ sounddevice>=0.4.6
 soundfile>=0.12.1
 pydub>=0.25.1
 
+# macOS Native Voice Isolation (requires macOS 12.0+)
+pyobjc-core>=10.0; platform_system == "Darwin"
+pyobjc-framework-AVFoundation>=10.0; platform_system == "Darwin"
+pyobjc-framework-CoreAudio>=10.0; platform_system == "Darwin"
+pyobjc-framework-CoreML>=10.0; platform_system == "Darwin"
+
 # Wake word detection
 pvporcupine>=2.2.0  # For "Hey Howdy" wake word detection
 
@@ -41,9 +47,9 @@ regex>=2021.8.3
 
 # ONNX for Kokoro TTS
 # For non-Apple Silicon platforms
-onnxruntime==1.21.1; platform_machine != "arm64" or platform_system != "Darwin"
-# For Apple Silicon (M-series) Macs - this is the optimized version
-onnxruntime-silicon==1.16.3; platform_machine == "arm64" and platform_system == "Darwin"
+onnxruntime>=1.16.0; platform_machine != "arm64" or platform_system != "Darwin"
+# For Apple Silicon (M-series) Macs - use regular onnxruntime (silicon is deprecated)
+onnxruntime>=1.16.0; platform_machine == "arm64" and platform_system == "Darwin"
 torch>=1.13.0
 torchaudio>=2.0.0  # For Silero VAD neural network voice detection
 kokoro-onnx==0.4.8  # TTS engine for voice synthesis with Apple Silicon support
