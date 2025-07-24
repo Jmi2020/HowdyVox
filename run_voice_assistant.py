@@ -6,6 +6,7 @@ import signal
 import sys
 import gc  # For garbage collection
 import re
+import argparse
 from colorama import Fore, init
 from voice_assistant.audio import record_audio, play_audio
 from voice_assistant.transcription import transcribe_audio
@@ -22,6 +23,12 @@ from voice_assistant.voice_initializer import initialize_success as voice_initia
 # Import the fixed wake word implementation
 from voice_assistant.wake_word import WakeWordDetector, SpeechRecognitionWakeWord, cleanup_all_detectors
 
+# Import wireless audio support
+from voice_assistant.network_audio_source import NetworkAudioSource
+from voice_assistant.wireless_device_manager import WirelessDeviceManager
+from voice_assistant.audio_source_manager import AudioSourceManager, AudioSourceType, get_audio_manager, set_audio_manager, cleanup_audio_manager
+from voice_assistant.hotkey_manager import get_hotkey_manager, start_hotkeys, stop_hotkeys
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -37,6 +44,8 @@ restart_count = 0  # Track how many times we've restarted to avoid infinite loop
 led_matrix = None  # LED Matrix controller instance
 activation_sound_playing = threading.Event()  # Flag to track if activation sound is playing
 is_first_turn_after_wake = threading.Event()  # Flag to track if this is the first turn after wake word
+network_audio_source = None  # Wireless audio source instance
+audio_source_manager = None  # Audio source manager instance
 
 def check_end_conversation(text):
     """
@@ -174,6 +183,17 @@ def signal_handler(sig, frame):
     if led_matrix:
         led_matrix.set_waiting()
     
+    # Cleanup audio source manager
+    if audio_source_manager:
+        print(f"{Fore.CYAN}Cleaning up audio source manager...{Fore.RESET}")
+        audio_source_manager.cleanup()
+    
+    # Cleanup global audio manager
+    cleanup_audio_manager()
+    
+    # Stop hotkeys
+    stop_hotkeys()
+    
     # Cleanup all wake word detectors
     cleanup_all_detectors()
     
@@ -188,7 +208,77 @@ def main():
     Main function to run the offline voice assistant with wake word detection
     and continuous conversation support.
     """
-    global led_matrix
+    global led_matrix, network_audio_source, audio_source_manager
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='HowdyTTS Voice Assistant')
+    parser.add_argument('--wireless', action='store_true', 
+                       help='Use wireless ESP32P4 devices instead of local microphone')
+    parser.add_argument('--room', type=str, 
+                       help='Target specific room for wireless audio (e.g., "Living Room")')
+    parser.add_argument('--list-devices', action='store_true',
+                       help='List available wireless devices and exit')
+    parser.add_argument('--auto', action='store_true',
+                       help='Auto-detect audio source (wireless first, local fallback)')
+    
+    args = parser.parse_args()
+    
+    # Determine initial audio source
+    if args.list_devices:
+        # Quick device listing
+        temp_manager = AudioSourceManager()
+        devices = temp_manager.get_available_devices()
+        if devices:
+            print(f"{Fore.GREEN}Available wireless devices:{Fore.RESET}")
+            for idx, (_, name, ip) in enumerate(devices):
+                print(f"  {idx}: {name} - {ip}")
+        else:
+            print(f"{Fore.YELLOW}No wireless devices found{Fore.RESET}")
+        temp_manager.cleanup()
+        return
+    
+    # Initialize audio source manager
+    if args.wireless or args.room:
+        initial_source = AudioSourceType.WIRELESS
+    elif args.auto:
+        initial_source = AudioSourceType.LOCAL  # Will auto-select in manager
+    else:
+        initial_source = AudioSourceType.LOCAL
+    
+    print(f"{Fore.CYAN}Initializing audio source manager...{Fore.RESET}")
+    audio_source_manager = AudioSourceManager(initial_source, target_room=args.room)
+    set_audio_manager(audio_source_manager)
+    
+    # Set up source change callback
+    def on_source_changed(source_type: AudioSourceType, success: bool):
+        status = "✓" if success else "✗"
+        color = Fore.GREEN if success else Fore.RED
+        print(f"{color}[Audio] {status} Switched to {source_type.value} microphone{Fore.RESET}")
+    
+    audio_source_manager.set_source_changed_callback(on_source_changed)
+    
+    # Auto-select or set initial source
+    if args.auto:
+        selected_source = audio_source_manager.auto_select_source()
+        print(f"{Fore.GREEN}Auto-selected audio source: {selected_source.value}{Fore.RESET}")
+    elif args.wireless or args.room:
+        if audio_source_manager.switch_to_wireless(args.room):
+            print(f"{Fore.GREEN}Using wireless audio source{Fore.RESET}")
+            if args.room:
+                print(f"{Fore.CYAN}Target room: {args.room}{Fore.RESET}")
+        else:
+            print(f"{Fore.YELLOW}Wireless failed, falling back to local microphone{Fore.RESET}")
+            audio_source_manager.switch_to_local()
+    
+    # Show current audio source info
+    info = audio_source_manager.get_source_info()
+    print(f"{Fore.CYAN}Audio source: {info['current_source']}{Fore.RESET}")
+    if info.get('wireless_devices', 0) > 0:
+        print(f"{Fore.CYAN}Wireless devices: {info['wireless_devices']}{Fore.RESET}")
+    
+    # Replace record_audio with manager's version (minimal overhead)
+    global record_audio
+    record_audio = audio_source_manager.record_audio
     
     # Set up signal handler for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
@@ -247,6 +337,17 @@ def main():
          You are friendly and fun and you will help the users with their requests.
          Your answers are short and concise. """}
     ]
+    
+    # Start hotkey manager for runtime audio source switching
+    if start_hotkeys():
+        print(f"{Fore.GREEN}Runtime hotkeys enabled:{Fore.RESET}")
+        print(f"  {Fore.CYAN}Ctrl+Alt+L{Fore.RESET} - Switch to local microphone")
+        print(f"  {Fore.CYAN}Ctrl+Alt+W{Fore.RESET} - Switch to wireless microphone")
+        print(f"  {Fore.CYAN}Ctrl+Alt+T{Fore.RESET} - Toggle audio source")
+        print(f"  {Fore.CYAN}Ctrl+Alt+I{Fore.RESET} - Show audio source info")
+        print(f"  {Fore.CYAN}Ctrl+Alt+D{Fore.RESET} - List wireless devices")
+    else:
+        print(f"{Fore.YELLOW}Runtime hotkeys disabled (keyboard module not available){Fore.RESET}")
     
     # Flag to track if we're currently playing audio
     playback_complete_event = threading.Event()

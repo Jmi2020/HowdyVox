@@ -56,3 +56,7 @@ kokoro-onnx==0.4.8  # TTS engine for voice synthesis with Apple Silicon support
 
 # Optional: keyboard for hotkeys
 keyboard>=0.13.5
+
+# Wireless ESP32P4 device support
+opuslib>=3.0.1  # OPUS audio codec for wireless streaming
+websocket-client>=1.0.0  # WebSocket communication with devices
