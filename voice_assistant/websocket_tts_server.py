@@ -17,7 +17,7 @@ class WebSocketTTSServer:
     Handles bidirectional communication for TTS audio streaming and VAD feedback.
     """
     
-    def __init__(self, host: str = "0.0.0.0", port: int = 8001):
+    def __init__(self, host: str = "0.0.0.0", port: int = 8002):
         self.host = host
         self.port = port
         self.server = None
@@ -88,8 +88,15 @@ class WebSocketTTSServer:
     
     async def _start_websocket_server(self):
         """Start the WebSocket server."""
+        # Use a wrapper function to handle websockets version compatibility
+        async def websocket_handler(websocket, path=None):
+            if path is None:
+                # For newer websockets versions that don't pass path
+                path = websocket.path if hasattr(websocket, 'path') else "/"
+            return await self._handle_client_connection(websocket, path)
+        
         self.server = await websockets.serve(
-            self._handle_client_connection,
+            websocket_handler,
             self.host,
             self.port,
             ping_interval=30,
@@ -119,12 +126,13 @@ class WebSocketTTSServer:
         }
         
         try:
-            # Send welcome message
+            # Send welcome message requesting device registration
             welcome_msg = {
                 'type': 'server_info',
                 'server_name': socket.gethostname(),
                 'timestamp': int(time.time() * 1000),
-                'supported_features': ['tts_audio', 'vad_feedback', 'wake_word_validation']
+                'supported_features': ['tts_audio', 'vad_feedback', 'wake_word_validation', 'device_registration'],
+                'request': 'device_registration'  # Request device to send its info
             }
             await websocket.send(json.dumps(welcome_msg))
             
@@ -155,7 +163,33 @@ class WebSocketTTSServer:
             
             logging.debug(f"📨 Received from {device_id}: {msg_type}")
             
-            if msg_type == 'tts_request':
+            if msg_type == 'device_registration':
+                # ESP32-P4 sending device registration info
+                device_name = data.get('device_name', device_id)
+                device_room = data.get('room', 'Unknown')
+                firmware_version = data.get('firmware_version', 'Unknown')
+                capabilities = data.get('capabilities', {})
+                
+                logging.info(f"📱 Device registration from {device_id}: {device_name} in {device_room}")
+                
+                # Update device session with registration info
+                if device_id in self.device_sessions:
+                    self.device_sessions[device_id]['device_name'] = device_name
+                    self.device_sessions[device_id]['room'] = device_room
+                    self.device_sessions[device_id]['firmware_version'] = firmware_version
+                    self.device_sessions[device_id]['capabilities'] = capabilities
+                    
+                    logging.info(f"✅ Registered ESP32-P4: {device_name} ({device_room})")
+                
+                # Send registration confirmation
+                confirm_msg = {
+                    'type': 'registration_confirmed',
+                    'device_id': device_id,
+                    'server_time': time.time()
+                }
+                await websocket.send(json.dumps(confirm_msg))
+            
+            elif msg_type == 'tts_request':
                 # ESP32-P4 requesting TTS for user speech
                 text = data.get('text', '')
                 session_id = data.get('session_id', f"tts_{int(time.time())}")
@@ -249,7 +283,11 @@ class WebSocketTTSServer:
                 'ip': self.devices[device_id].remote_address[0],
                 'connected_at': session['connected_at'],
                 'last_seen': session['last_seen'],
-                'vad_stats': session['vad_stats']
+                'vad_stats': session['vad_stats'],
+                'device_name': session.get('device_name', device_id),
+                'room': session.get('room', 'Unknown'),
+                'firmware_version': session.get('firmware_version', 'Unknown'),
+                'capabilities': session.get('capabilities', {})
             }
             for device_id, session in self.device_sessions.items()
             if device_id in self.devices
@@ -291,7 +329,7 @@ def get_websocket_tts_server() -> Optional[WebSocketTTSServer]:
     """Get the global WebSocket TTS server instance."""
     return _websocket_tts_server
 
-def start_websocket_tts_server(host: str = "0.0.0.0", port: int = 8001) -> WebSocketTTSServer:
+def start_websocket_tts_server(host: str = "0.0.0.0", port: int = 8002) -> WebSocketTTSServer:
     """Start the global WebSocket TTS server."""
     global _websocket_tts_server
     

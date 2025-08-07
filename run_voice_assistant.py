@@ -662,7 +662,24 @@ def main():
                         # Play the first chunk after the stabilization delay with timing
                         first_chunk_start = time.time()
                         logging.info(f"Starting playback of first chunk after {playback_delay:.3f}s stabilization")
+                        
+                        # Play audio locally
                         play_audio(first_chunk_file)
+                        
+                        # Send to ESP32-P4 devices if using wireless audio
+                        if audio_source_manager and hasattr(audio_source_manager, '_network_source') and audio_source_manager._network_source:
+                            try:
+                                success = audio_source_manager._network_source.send_tts_audio_to_devices(
+                                    first_chunk_file, 
+                                    response_text[:50] + ('...' if len(response_text) > 50 else '')
+                                )
+                                if success:
+                                    logging.info(f"📡 Sent TTS chunk to ESP32-P4 devices")
+                                else:
+                                    logging.warning(f"⚠️ Failed to send TTS chunk to ESP32-P4 devices")
+                            except Exception as e:
+                                logging.error(f"❌ Error sending TTS to ESP32-P4: {e}")
+                        
                         first_chunk_duration = time.time() - first_chunk_start
                         logging.info(f"First chunk playback completed in {first_chunk_duration:.3f}s")
                         
@@ -702,7 +719,20 @@ def main():
                                 
                                 chunk_play_start = time.time()
                                 logging.info(f"Playing chunk {chunk_index+1} (gap: {inter_chunk_time:.3f}s, queue_size: {stats['queue_size']})")
+                                
+                                # Play audio locally
                                 play_audio(next_chunk)
+                                
+                                # Send to ESP32-P4 devices if using wireless audio
+                                if audio_source_manager and hasattr(audio_source_manager, '_network_source') and audio_source_manager._network_source:
+                                    try:
+                                        audio_source_manager._network_source.send_tts_audio_to_devices(
+                                            next_chunk, 
+                                            f"chunk_{chunk_index+1}"
+                                        )
+                                    except Exception as e:
+                                        logging.debug(f"Error sending TTS chunk {chunk_index+1} to ESP32-P4: {e}")
+                                
                                 chunk_play_time = time.time() - chunk_play_start
                                 logging.debug(f"Chunk {chunk_index+1} playback took {chunk_play_time:.3f}s")
                                 

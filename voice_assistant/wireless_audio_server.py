@@ -24,7 +24,7 @@ class WirelessAudioServer:
     
     def __init__(self, 
                  host: str = "0.0.0.0", 
-                 port: int = 8000,
+                 port: int = 8003,
                  sample_rate: int = 16000,
                  channels: int = 1):
         self.host = host

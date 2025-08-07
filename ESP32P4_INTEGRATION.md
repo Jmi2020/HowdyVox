@@ -2,6 +2,90 @@
 
 This guide explains how to integrate your ESP32-P4 HowdyScreen wireless voice assistant devices with HowdyTTS for complete bidirectional VAD and wake word detection.
 
+## 🚀 **LATEST UPDATE - August 7, 2025: BSP Codec Integration & Port Conflict Resolution**
+
+### **Critical Infrastructure Fixes Completed**
+
+#### **1. Port Conflict Resolution**
+**Problem**: FastWhisperAPI (HTTP:8000) was conflicting with ESP32-P4 UDP audio streaming
+**Solution**: Moved ESP32-P4 audio streaming to dedicated port 8003
+
+**Updated Port Configuration:**
+```
+Port 8000: FastWhisperAPI HTTP Server (STT processing)  
+Port 8001: VAD Feedback WebSocket Server
+Port 8002: WebSocket TTS Server  
+Port 8003: ESP32-P4 UDP Audio Streaming (NEW - moved from 8000)
+```
+
+#### **2. WebSocket Handler Compatibility Fix**
+Fixed WebSocket server compatibility issue with different websockets library versions:
+```python
+# Fixed in: voice_assistant/websocket_tts_server.py
+async def websocket_handler(websocket, path=None):
+    if path is None:
+        path = websocket.path if hasattr(websocket, 'path') else "/"
+    return await self._handle_client_connection(websocket, path)
+```
+
+#### **3. ESP32-P4 BSP Codec Device API Integration** 
+**Major architectural change from raw I2S to BSP codec device API:**
+
+**Hardware Integration:**
+- **ES8311 Codec**: Speaker/DAC with power amplifier control
+- **ES7210 Codec**: Microphone/ADC with echo cancellation
+- **BSP Integration**: Proper I2C communication and GPIO control
+
+**Code Changes:**
+```c
+// Before: Raw I2S channels
+i2s_chan_handle_t rx_chan, tx_chan;
+
+// After: BSP codec device handles  
+esp_codec_dev_handle_t speaker_codec;  // ES8311
+esp_codec_dev_handle_t mic_codec;      // ES7210
+```
+
+**Critical Initialization Sequence:**
+```c
+esp_err_t dual_i2s_init(const dual_i2s_config_t *config)
+{
+    // Step 1: Initialize BSP I2C (required for codec communication)
+    bsp_i2c_init();
+    
+    // Step 2: Initialize BSP audio (I2S + codec interface)
+    bsp_audio_init(NULL);
+    
+    // Step 3: Now codec init functions work properly
+    // bsp_audio_codec_speaker_init() and bsp_audio_codec_microphone_init()
+}
+```
+
+### **Updated Server Configuration**
+
+#### **Modified Files in HowdyTTS:**
+1. **`voice_assistant/wireless_audio_server.py`**
+   - Updated default UDP port from 8000 to 8003
+   - No conflict with FastWhisperAPI
+
+2. **`voice_assistant/websocket_tts_server.py`**
+   - Added WebSocket handler compatibility wrapper
+   - Supports both websockets v8.x and v10.x+
+
+### **ESP32-P4 Firmware Updates**
+The ESP32-P4 firmware has been updated with:
+- BSP codec device API integration
+- Proper codec initialization sequence
+- Updated UDP audio port to 8003
+- Enhanced error handling and diagnostics
+
+### **Ready for Audio Integration Testing**
+With these fixes, the ESP32-P4 HowdyScreen devices should now:
+- ✅ Successfully initialize ES8311 (speaker) and ES7210 (microphone) codecs
+- ✅ Stream audio to HowdyTTS server on port 8003 without port conflicts  
+- ✅ Maintain WebSocket connectivity for VAD feedback and TTS
+- ✅ Support real-time bidirectional audio processing
+
 ## Overview
 
 The ESP32-P4 HowdyScreen integration provides the **first-ever ESP32-P4 integration** with HowdyTTS, featuring:
@@ -32,7 +116,7 @@ The ESP32-P4 HowdyScreen integration provides the **first-ever ESP32-P4 integrat
 │ │      Enhanced UDP Protocol      │ │──→ │ │   ESP32-P4 Protocol Parser   │   │
 │ │   - VERSION_WAKE_WORD (0x03)    │ │    │ │   - 24-byte headers          │   │
 │ │   - 24-byte headers             │ │    │ │   - VAD + Wake word data     │   │
-│ │   - Port 8000                   │ │    │ │   - Multi-device handling    │   │
+│ │   - Port 8003                   │ │    │ │   - Multi-device handling    │   │
 │ └─────────────────────────────────┘ │    │ └──────────────────────────────┘   │
 │                ↓                    │    │                ↓                   │
 │ ┌─────────────────────────────────┐ │    │ ┌──────────────────────────────┐   │

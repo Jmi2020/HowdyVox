@@ -23,7 +23,7 @@ class WirelessDevice:
     device_id: str
     device_type: str = "ESP32P4_HowdyScreen"
     ip_address: str = ""
-    port: int = 8000
+    port: int = 8003
     room: str = ""
     last_seen: float = 0.0
     is_active: bool = False
@@ -158,7 +158,7 @@ class WirelessDeviceManager:
         if self.discovery_thread and self.discovery_thread.is_alive():
             self.discovery_thread.join(timeout=2.0)
     
-    def register_device(self, device_id: str, ip_address: str, port: int = 8000) -> WirelessDevice:
+    def register_device(self, device_id: str, ip_address: str, port: int = 8003, room: str = None, device_name: str = None) -> WirelessDevice:
         """Register a new wireless device or update existing one."""
         current_time = time.time()
         
@@ -180,10 +180,16 @@ class WirelessDeviceManager:
                 device_id=device_id,
                 ip_address=ip_address,
                 port=port,
+                room=room or "Unknown",
                 last_seen=current_time,
                 is_active=True,
                 status="ready"
             )
+            
+            # If device_name is provided, update device_id to be more descriptive
+            if device_name:
+                # Store original device_id for compatibility but use descriptive name
+                device.device_id = device_name
             self.devices[device_id] = device
             
             if self.device_connected_callback:
@@ -194,6 +200,42 @@ class WirelessDeviceManager:
         # Save updated configuration
         self.save_config()
         return device
+    
+    def sync_websocket_device_info(self):
+        """Sync device information from WebSocket TTS server."""
+        try:
+            # Import here to avoid circular imports
+            from .websocket_tts_server import get_websocket_tts_server
+            
+            tts_server = get_websocket_tts_server()
+            if not tts_server:
+                return
+            
+            websocket_devices = tts_server.get_connected_devices()
+            
+            for device_id, device_info in websocket_devices.items():
+                # Update or register device with WebSocket information
+                room = device_info.get('room', 'Unknown')
+                device_name = device_info.get('device_name', device_id)
+                ip_address = device_info.get('ip', '0.0.0.0')
+                
+                # Register/update device with room and name information
+                device = self.register_device(
+                    device_id=device_id,
+                    ip_address=ip_address,
+                    room=room,
+                    device_name=device_name
+                )
+                
+                # Update additional info from WebSocket
+                if device_id in self.devices:
+                    self.devices[device_id].room = room
+                    if device_name and device_name != device_id:
+                        # Use the descriptive device name
+                        logging.info(f"📱 Updated device info: {device_id} -> {device_name} in {room}")
+                        
+        except Exception as e:
+            logging.debug(f"Error syncing WebSocket device info: {e}")
     
     def update_device_status(self, device_id: str, **kwargs):
         """Update device status information."""
@@ -370,7 +412,7 @@ class WirelessDeviceManager:
                     'version': '1.0',
                     'service': 'HowdyTTS',
                     'protocol': 'udp',
-                    'audio_port': '8000',
+                    'audio_port': '8003',
                     'discovery_port': '8001'
                 }
             )

@@ -15,6 +15,8 @@ from .utterance_detector import IntelligentUtteranceDetector, UtteranceContext
 from .esp32_p4_vad_coordinator import ESP32P4VADCoordinator, VADFusionStrategy, VADDecision
 from .esp32_p4_protocol import ESP32P4ProtocolParser
 from .websocket_tts_server import start_websocket_tts_server, get_websocket_tts_server
+from .text_to_speech import text_to_speech, get_next_chunk, get_chunk_generation_stats, generation_complete
+from .config import Config
 from .config import Config
 
 class NetworkAudioSource:
@@ -41,7 +43,7 @@ class NetworkAudioSource:
         # Audio components
         self.audio_server = WirelessAudioServer(
             host="0.0.0.0",
-            port=8000,
+            port=8003,
             sample_rate=self.sample_rate,
             channels=self.channels
         )
@@ -119,6 +121,9 @@ class NetworkAudioSource:
             # Wait a moment for device discovery
             time.sleep(2.0)
             
+            # Sync device information from WebSocket connections
+            self.device_manager.sync_websocket_device_info()
+            
             # Select active device
             self._select_active_device()
             
@@ -150,8 +155,8 @@ class NetworkAudioSource:
         
         logging.info("NetworkAudioSource stopped")
     
-    def send_tts_audio_to_devices(self, audio_data: bytes, text: str = "") -> bool:
-        """Send TTS audio to all connected ESP32-P4 devices."""
+    def send_tts_audio_to_devices(self, audio_file_path: str, text: str = "") -> bool:
+        """Send TTS audio file to all connected ESP32-P4 devices."""
         tts_server = get_websocket_tts_server()
         if not tts_server:
             logging.warning("WebSocket TTS server not available")
@@ -162,21 +167,70 @@ class NetworkAudioSource:
             logging.info("No ESP32-P4 devices connected for TTS playback")
             return False
         
-        success_count = 0
-        for device_id in devices:
-            if tts_server.send_tts_audio_sync(device_id, audio_data):
-                success_count += 1
-                logging.info(f"🔊 Sent TTS audio to {device_id}: '{text[:30]}{'...' if len(text) > 30 else ''}'")
-        
-        logging.info(f"📡 TTS audio sent to {success_count}/{len(devices)} ESP32-P4 devices")
-        return success_count > 0
+        try:
+            # Load and convert audio file to the format ESP32-P4 expects
+            import wave
+            with wave.open(audio_file_path, 'rb') as wav_file:
+                # Ensure correct format for ESP32-P4: 16kHz, mono, 16-bit PCM
+                if wav_file.getsampwidth() != 2 or wav_file.getnchannels() != 1 or wav_file.getframerate() != 16000:
+                    logging.warning(f"Audio file format mismatch - converting: {audio_file_path}")
+                    audio_data = self._convert_audio_format(audio_file_path)
+                else:
+                    # Audio is already in correct format
+                    audio_data = wav_file.readframes(wav_file.getnframes())
+            
+            if not audio_data:
+                logging.error(f"No audio data loaded from {audio_file_path}")
+                return False
+            
+            success_count = 0
+            for device_id in devices:
+                if tts_server.send_tts_audio_sync(device_id, audio_data):
+                    success_count += 1
+                    logging.info(f"🔊 Sent TTS audio to {device_id}: '{text[:30]}{'...' if len(text) > 30 else ''}'")
+                else:
+                    logging.error(f"Failed to send TTS audio to {device_id}")
+            
+            logging.info(f"📡 TTS audio sent to {success_count}/{len(devices)} ESP32-P4 devices")
+            return success_count > 0
+            
+        except Exception as e:
+            logging.error(f"Error sending TTS audio to ESP32-P4 devices: {e}")
+            return False
+    
+    def _convert_audio_format(self, audio_file_path: str) -> bytes:
+        """Convert audio file to ESP32-P4 format (16kHz, mono, 16-bit PCM)."""
+        try:
+            import soundfile as sf
+            
+            # Load audio file
+            audio_data, sample_rate = sf.read(audio_file_path, dtype='float32')
+            
+            # Convert to mono if stereo
+            if len(audio_data.shape) > 1:
+                audio_data = np.mean(audio_data, axis=1)
+            
+            # Resample to 16kHz if needed
+            if sample_rate != 16000:
+                import librosa
+                audio_data = librosa.resample(audio_data, orig_sr=sample_rate, target_sr=16000)
+            
+            # Convert to 16-bit PCM
+            audio_int16 = (audio_data * 32767).astype(np.int16)
+            
+            return audio_int16.tobytes()
+            
+        except Exception as e:
+            logging.error(f"Audio format conversion failed: {e}")
+            return b''
     
     def record_audio(self, 
                     file_path: str,
                     max_duration: float = 30.0,
                     silence_timeout: float = 2.0,
                     energy_threshold: Optional[float] = None,
-                    **kwargs) -> Tuple[bool, Optional[str]]:
+                    is_wake_word_response: bool = False,
+                    **kwargs) -> bool:
         """
         Record audio from wireless device using intelligent VAD.
         
@@ -188,18 +242,21 @@ class NetworkAudioSource:
             max_duration: Maximum recording duration in seconds
             silence_timeout: Maximum silence before stopping
             energy_threshold: Minimum energy threshold (unused for network source)
+            is_wake_word_response: Whether this is recording after wake word
             **kwargs: Additional arguments (for compatibility)
             
         Returns:
-            Tuple of (success, error_message)
+            bool: True if recording was successful, False otherwise
         """
         if not self.active_device:
-            return False, "No active wireless device available"
+            logging.error("No active wireless device available for recording")
+            return False
         
         if self.is_recording:
-            return False, "Already recording"
+            logging.warning("Already recording audio")
+            return False
         
-        logging.info(f"Starting network audio recording from device {self.active_device.device_id}")
+        logging.info(f"📱 Starting ESP32-P4 audio recording from {self.active_device.device_id}")
         
         # Clear buffers
         self.audio_buffer.clear()
@@ -212,7 +269,7 @@ class NetworkAudioSource:
         self.is_recording = True
         self.recording_thread = threading.Thread(
             target=self._recording_loop,
-            args=(file_path, max_duration, silence_timeout),
+            args=(file_path, max_duration, silence_timeout, is_wake_word_response),
             daemon=True
         )
         self.recording_thread.start()
@@ -220,11 +277,15 @@ class NetworkAudioSource:
         # Wait for recording to complete
         self.recording_thread.join()
         
-        success = len(self.audio_buffer) > 0
-        error_message = None if success else "No audio data received"
+        # Check if we successfully recorded audio with speech
+        success = hasattr(self, '_recording_success') and self._recording_success
         
-        logging.info(f"Network audio recording completed: {success}")
-        return success, error_message
+        if success:
+            logging.info(f"✅ ESP32-P4 audio recording successful: {file_path}")
+        else:
+            logging.warning(f"⚠️ ESP32-P4 audio recording failed or no speech detected")
+        
+        return success
     
     def get_available_devices(self) -> list:
         """Get list of available wireless audio devices (compatibility method)."""
@@ -328,7 +389,7 @@ class NetworkAudioSource:
             last_seen=time.time()
         )
     
-    def _recording_loop(self, file_path: str, max_duration: float, silence_timeout: float):
+    def _recording_loop(self, file_path: str, max_duration: float, silence_timeout: float, is_wake_word_response: bool = False):
         """Main recording loop with VAD and utterance detection."""
         recording_started = False
         speech_detected = False
@@ -336,6 +397,11 @@ class NetworkAudioSource:
         recorded_chunks = []
         
         start_time = time.time()
+        
+        # For wake word response, be more aggressive in starting recording
+        wake_word_grace_period = 1.0 if is_wake_word_response else 0.0
+        
+        logging.info(f"📊 Starting ESP32-P4 recording loop (wake_word_response: {is_wake_word_response})")
         
         while self.is_recording and (time.time() - start_time) < max_duration:
             try:
@@ -371,12 +437,19 @@ class NetworkAudioSource:
                     
                     # Log enhanced VAD information
                     if logging.getLogger().isEnabledFor(logging.DEBUG):
-                        logging.debug(f"VAD Coordination: {vad_result.decision.value}, "
+                        logging.debug(f"🔍 VAD Coordination: {vad_result.decision.value}, "
                                     f"confidence: {vad_result.confidence:.3f}, "
                                     f"method: {vad_result.coordination_method}")
                 else:
                     # Fallback to server-only VAD
                     is_speech, _ = self.vad.process_chunk(audio_chunk.astype(np.float32) / 32768.0)
+                
+                # For wake word responses, be more permissive during grace period
+                if is_wake_word_response and (time.time() - start_time) < wake_word_grace_period:
+                    # During grace period, consider any significant audio as speech
+                    audio_level = np.abs(audio_chunk.astype(np.float32) / 32768.0).mean()
+                    if audio_level > 0.005:  # Lower threshold for wake word responses
+                        is_speech = True
                 
                 if is_speech:
                     self.stats['vad_detections'] += 1
@@ -386,7 +459,7 @@ class NetworkAudioSource:
                         recorded_chunks.extend(list(self.pre_speech_buffer))
                         recording_started = True
                         speech_detected = True
-                        logging.info("Speech detected - started recording")
+                        logging.info("🎙️ ESP32-P4 speech detected - started recording")
                     
                     # Reset silence timer
                     silence_start = None
@@ -397,7 +470,7 @@ class NetworkAudioSource:
                             silence_start = time.time()
                         elif (time.time() - silence_start) > silence_timeout:
                             # Silence timeout reached
-                            logging.info("Silence timeout - stopping recording")
+                            logging.info("🔇 ESP32-P4 silence timeout - stopping recording")
                             break
                 
                 # Add chunk to recording if we're recording
@@ -405,17 +478,19 @@ class NetworkAudioSource:
                     recorded_chunks.append(audio_chunk)
                 
             except Exception as e:
-                logging.error(f"Error in recording loop: {e}")
+                logging.error(f"❌ Error in ESP32-P4 recording loop: {e}")
                 break
         
         self.is_recording = False
         
-        # Save recorded audio
+        # Save recorded audio and set success flag
         if recorded_chunks and speech_detected:
             self._save_audio(recorded_chunks, file_path)
-            logging.info(f"Saved {len(recorded_chunks)} audio chunks to {file_path}")
+            self._recording_success = True
+            logging.info(f"💾 ESP32-P4 saved {len(recorded_chunks)} audio chunks to {file_path}")
         else:
-            logging.warning("No speech detected during recording")
+            self._recording_success = False
+            logging.warning("⚠️ ESP32-P4 no speech detected during recording")
     
     def _save_audio(self, chunks: list, file_path: str):
         """Save recorded audio chunks to file."""
@@ -504,6 +579,16 @@ class NetworkAudioSource:
         self.vad_coordinator.reset_metrics()
         self.protocol_parser.reset_stats()
         logging.info("VAD coordination metrics reset")
+    
+    def is_esp32p4_connected(self) -> bool:
+        """Check if any ESP32-P4 devices are connected."""
+        devices = self.device_manager.get_active_devices()
+        return len(devices) > 0
+    
+    def get_connected_esp32p4_count(self) -> int:
+        """Get number of connected ESP32-P4 devices."""
+        devices = self.device_manager.get_active_devices()
+        return len(devices)
 
 
 # Example usage and testing
