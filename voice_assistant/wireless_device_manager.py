@@ -10,6 +10,13 @@ from pathlib import Path
 import socket
 import struct
 
+# Optional mDNS support
+try:
+    from zeroconf import ServiceInfo, Zeroconf
+    MDNS_AVAILABLE = True
+except ImportError:
+    MDNS_AVAILABLE = False
+
 @dataclass
 class WirelessDevice:
     """Represents a wireless audio device (ESP32P4 HowdyScreen)."""
@@ -111,16 +118,23 @@ class WirelessDeviceManager:
             return
         
         try:
-            # Create UDP socket for discovery
+            # Create UDP socket for discovery - listen for ESP32-P4 discovery requests
             self.discovery_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.discovery_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            self.discovery_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.discovery_socket.bind(('0.0.0.0', 8001))  # Listen on port 8001 for ESP32-P4 requests
             self.discovery_socket.settimeout(1.0)
+            
+            logging.info("📡 HowdyTTS discovery server listening on UDP port 8001 for ESP32-P4 devices")
+            
+            # Start mDNS advertising for enhanced network portability
+            self._start_mdns_advertising()
             
             self.discovery_running = True
             self.discovery_thread = threading.Thread(target=self._discovery_loop, daemon=True)
             self.discovery_thread.start()
             
-            logging.info("Device discovery started")
+            logging.info("Device discovery started with UDP broadcast + mDNS advertising")
             
         except Exception as e:
             logging.error(f"Failed to start device discovery: {e}")
@@ -132,6 +146,14 @@ class WirelessDeviceManager:
         if self.discovery_socket:
             self.discovery_socket.close()
             self.discovery_socket = None
+        
+        # Stop mDNS advertising
+        if hasattr(self, 'zeroconf'):
+            try:
+                self.zeroconf.close()
+                logging.info("📡 mDNS advertising stopped")
+            except Exception as e:
+                logging.warning(f"Error stopping mDNS: {e}")
         
         if self.discovery_thread and self.discovery_thread.is_alive():
             self.discovery_thread.join(timeout=2.0)
@@ -296,22 +318,27 @@ class WirelessDeviceManager:
     
     def _discovery_loop(self):
         """Device discovery loop - broadcasts discovery packets."""
-        logging.info("Device discovery loop started")
+        logging.info("📡 Discovery server started - listening for ESP32-P4 'HOWDYTTS_DISCOVERY' requests on port 8001")
         
         while self.discovery_running:
             try:
-                # Send discovery broadcast
-                discovery_packet = b"HOWDYTTS_DISCOVERY"
-                self.discovery_socket.sendto(discovery_packet, ("255.255.255.255", 8001))
+                # ESP32-P4 devices send discovery requests to us
+                # We listen for "HOWDYTTS_DISCOVERY" requests and respond with server info
                 
-                # Listen for responses
+                # Listen for ESP32-P4 discovery requests
                 try:
                     data, addr = self.discovery_socket.recvfrom(1024)
+                    # Always log received packets for debugging
+                    message = data.decode('utf-8', errors='ignore')
+                    logging.info(f"📡 Received UDP packet from {addr[0]}:{addr[1]} - Data: '{message}'")
                     self._handle_discovery_response(data, addr)
                 except socket.timeout:
+                    # This is normal - socket has 1 second timeout
                     pass
+                except Exception as e:
+                    logging.error(f"Error receiving discovery packet: {e}")
                 
-                time.sleep(self.discovery_timeout)  # Discovery interval
+                time.sleep(0.1)  # Short sleep to avoid busy waiting
                 
             except Exception as e:
                 if self.discovery_running:
@@ -319,22 +346,71 @@ class WirelessDeviceManager:
         
         logging.info("Device discovery loop ended")
     
+    def _start_mdns_advertising(self):
+        """Start mDNS advertising to announce HowdyTTS service."""
+        if not MDNS_AVAILABLE:
+            logging.info("📡 zeroconf not available - using UDP broadcast only (pip install zeroconf for mDNS)")
+            return
+            
+        try:
+            # Get local IP address
+            hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(hostname)
+            
+            # Create mDNS service info
+            service_type = "_howdytts._udp.local."
+            service_name = f"{hostname}.{service_type}"
+            
+            info = ServiceInfo(
+                service_type,
+                service_name,
+                addresses=[socket.inet_aton(local_ip)],
+                port=8001,
+                properties={
+                    'version': '1.0',
+                    'service': 'HowdyTTS',
+                    'protocol': 'udp',
+                    'audio_port': '8000',
+                    'discovery_port': '8001'
+                }
+            )
+            
+            # Start mDNS service
+            self.zeroconf = Zeroconf()
+            self.zeroconf.register_service(info)
+            
+            logging.info(f"📡 mDNS service advertised: {service_name} at {local_ip}:8001")
+                
+        except Exception as e:
+            logging.warning(f"Failed to start mDNS advertising: {e} - continuing with UDP broadcast only")
+    
     def _handle_discovery_response(self, data: bytes, addr: tuple):
         """Handle discovery response from device."""
         try:
-            response = data.decode('utf-8')
-            if response.startswith("HOWDYSCREEN_"):
-                # Extract device info from response
-                parts = response.split("_")
+            message = data.decode('utf-8').strip()
+            logging.info(f"📡 Processing discovery message: '{message}' from {addr[0]}")
+            
+            if message == "HOWDYTTS_DISCOVERY":
+                # ESP32-P4 is requesting discovery - respond with server info
+                hostname = socket.gethostname()
+                response = f"HOWDYTTS_SERVER_{hostname}"
+                self.discovery_socket.sendto(response.encode('utf-8'), addr)
+                logging.info(f"📡 Sent discovery response to ESP32-P4 at {addr[0]}: {response}")
+                
+                # Also register the device as discovered
+                device_id = f"ESP32P4_{addr[0].replace('.', '_')}"
+                self.register_device(device_id, addr[0])
+                
+            elif message.startswith("HOWDYSCREEN_"):
+                # Handle older protocol format for backward compatibility
+                parts = message.split("_")
                 if len(parts) >= 3:
                     device_type = parts[1]
                     device_id = parts[2]
-                    
-                    # Register or update device
                     self.register_device(device_id, addr[0])
                     
         except Exception as e:
-            logging.debug(f"Error handling discovery response: {e}")
+            logging.error(f"Error handling discovery response from {addr}: {e}")
     
     def load_config(self):
         """Load device configuration from file."""

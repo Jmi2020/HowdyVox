@@ -48,8 +48,14 @@ print("\n2️⃣ Starting Voice Assistant...")
 print("=" * 50)
 print()
 
+# Pass command line arguments to the voice assistant
+args = ' '.join(sys.argv[1:]) if len(sys.argv) > 1 else ''
+if args:
+    print(f"   With arguments: {args}")
+
 # This will show all output in the terminal
-os.system("/opt/anaconda3/bin/conda run -n howdy310 --no-capture-output python -u run_voice_assistant.py")
+cmd = f"/opt/anaconda3/bin/conda run -n howdy310 --no-capture-output python -u run_voice_assistant.py {args}"
+os.system(cmd)
 
 # Cleanup when voice assistant exits
 cleanup()

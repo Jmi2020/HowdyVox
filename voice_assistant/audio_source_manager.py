@@ -105,16 +105,19 @@ class AudioSourceManager:
                 return False
         
         # Switch to wireless
-        if self._network_source and self.current_source != AudioSourceType.WIRELESS:
-            self.current_source = AudioSourceType.WIRELESS
-            self._current_record_func = self._network_source.record_audio
-            self.stats['source_switches'] += 1
-            self.target_room = room
-            
-            logging.info(f"Switched to wireless microphone (room: {room or 'auto'})")
-            
-            if self.source_changed_callback:
-                self.source_changed_callback(AudioSourceType.WIRELESS, True)
+        if self._network_source:
+            if self.current_source != AudioSourceType.WIRELESS:
+                self.current_source = AudioSourceType.WIRELESS
+                self._current_record_func = self._network_source.record_audio
+                self.stats['source_switches'] += 1
+                self.target_room = room
+                
+                logging.info(f"Switched to wireless microphone (room: {room or 'auto'})")
+                
+                if self.source_changed_callback:
+                    self.source_changed_callback(AudioSourceType.WIRELESS, True)
+            else:
+                logging.info(f"Already using wireless microphone (room: {room or 'auto'})")
             
             return True
         
@@ -144,8 +147,9 @@ class AudioSourceManager:
                 if self._network_source.start():
                     self._network_initialized = True
                     
-                    # Brief wait for device discovery
-                    time.sleep(1.0)
+                    # Wait for ESP32-P4 devices to boot and send discovery packets
+                    # ESP32-P4 typically takes 3-5 seconds to fully boot and start discovery
+                    time.sleep(5.0)
                     
                     # Check if devices are available
                     devices = self._network_source.get_available_devices()

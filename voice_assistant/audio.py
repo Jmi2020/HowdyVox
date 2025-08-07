@@ -260,9 +260,49 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
     logging.error("Recording failed after all retries")
     return False  # Failed to record audio
 
+def _send_tts_to_esp32_devices(file_path: str):
+    """Send TTS audio to ESP32-P4 devices if in wireless mode."""
+    try:
+        # Check if we're in wireless mode by looking for active WebSocket TTS server
+        from voice_assistant.websocket_tts_server import get_websocket_tts_server
+        tts_server = get_websocket_tts_server()
+        
+        if not tts_server:
+            return  # No WebSocket server running, not in wireless mode
+        
+        devices = tts_server.get_connected_devices()
+        if not devices:
+            return  # No ESP32-P4 devices connected
+        
+        # Convert audio file to PCM format for ESP32-P4
+        audio_segment = AudioSegment.from_file(file_path)
+        
+        # Ensure audio is in the right format for ESP32-P4 (16kHz, mono, 16-bit)
+        audio_segment = audio_segment.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+        
+        # Convert to raw PCM bytes
+        pcm_data = audio_segment.raw_data
+        
+        # Get filename for logging (without path)
+        filename = os.path.basename(file_path)
+        
+        # Send to all connected devices
+        success_count = 0
+        for device_id in devices:
+            if tts_server.send_tts_audio_sync(device_id, pcm_data):
+                success_count += 1
+        
+        if success_count > 0:
+            logging.info(f"🔊 Sent TTS audio '{filename}' to {success_count} ESP32-P4 device(s)")
+            
+    except Exception as e:
+        logging.debug(f"Could not send TTS audio to ESP32-P4 devices: {e}")
+        # Don't log as error since this is optional functionality
+
 def play_audio(file_path):
     """
     Play a single audio file using pygame.
+    Also sends audio to ESP32-P4 devices if in wireless mode.
     
     Args:
     file_path (str): The path to the audio file to play.
@@ -276,6 +316,9 @@ def play_audio(file_path):
     
     # Make sure temp audio directory exists
     os.makedirs(Config.TEMP_AUDIO_DIR, exist_ok=True)
+    
+    # Check if we should send audio to ESP32-P4 devices
+    _send_tts_to_esp32_devices(file_path)
     
     file_extension = os.path.splitext(file_path)[1].lower()
     

@@ -1,64 +1,125 @@
-# ESP32P4 HowdyScreen Integration Guide
+# ESP32-P4 HowdyScreen Integration Guide
 
-This guide explains how to integrate your ESP32P4 HowdyScreen wireless microphone devices with HowdyTTS.
+This guide explains how to integrate your ESP32-P4 HowdyScreen wireless voice assistant devices with HowdyTTS for complete bidirectional VAD and wake word detection.
 
 ## Overview
 
-The ESP32P4 HowdyScreen integration allows you to use wireless microphone devices instead of local USB microphones. The system supports:
+The ESP32-P4 HowdyScreen integration provides the **first-ever ESP32-P4 integration** with HowdyTTS, featuring:
 
-- **Real-time audio streaming** via UDP with OPUS compression
-- **Multi-room support** with device discovery and assignment
-- **Visual feedback** through the ESP32P4's display and LED ring
-- **Seamless integration** with existing HowdyTTS VAD and processing
+- **Bidirectional VAD System**: Edge (ESP32-P4) + Server (Silero) VAD fusion with 5 strategies
+- **Wake Word Detection**: ESP32-P4 edge detection with Porcupine server validation  
+- **Enhanced UDP Protocol**: VERSION_WAKE_WORD (0x03) with 24-byte headers
+- **WebSocket Feedback**: Real-time VAD corrections and threshold adaptation (Port 8001)
+- **Multi-device Coordination**: Room-based device management and wake word sharing
+- **Adaptive Learning**: Self-improving system based on usage patterns
+- **Visual Feedback**: Round display UI with audio level visualization
 
 ## Architecture
 
 ```
-ESP32P4 HowdyScreen Device          HowdyTTS Server
-┌─────────────────────────┐        ┌─────────────────────────┐
-│ • Microphone capture    │  UDP   │ • Wireless Audio Server │
-│ • OPUS encoding         │ ────── │ • Device Manager        │
-│ • LED ring feedback     │  8000  │ • VAD & Processing      │
-│ • Round display UI      │        │ • TTS Response          │
-└─────────────────────────┘        └─────────────────────────┘
+┌─────────────────────────────────────┐    ┌────────────────────────────────────┐
+│        ESP32-P4 HowdyScreen         │    │         HowdyTTS Server            │
+├─────────────────────────────────────┤    ├────────────────────────────────────┤
+│                                     │    │                                    │
+│ ┌─────────────────────────────────┐ │    │ ┌──────────────────────────────┐   │
+│ │   Enhanced VAD + Wake Word      │ │    │ │    Silero VAD + Porcupine    │   │
+│ │   - Energy + spectral analysis │ │    │ │    - Neural VAD              │   │
+│ │   - "Hey Howdy" pattern match  │ │    │ │    - Wake word validation    │   │
+│ │   - Adaptive thresholds        │ │    │ │    - Multi-device coordination│  │
+│ └─────────────────────────────────┘ │    │ └──────────────────────────────┘   │
+│                ↓                    │    │                ↓                   │
+│ ┌─────────────────────────────────┐ │    │ ┌──────────────────────────────┐   │
+│ │      Enhanced UDP Protocol      │ │──→ │ │   ESP32-P4 Protocol Parser   │   │
+│ │   - VERSION_WAKE_WORD (0x03)    │ │    │ │   - 24-byte headers          │   │
+│ │   - 24-byte headers             │ │    │ │   - VAD + Wake word data     │   │
+│ │   - Port 8000                   │ │    │ │   - Multi-device handling    │   │
+│ └─────────────────────────────────┘ │    │ └──────────────────────────────┘   │
+│                ↓                    │    │                ↓                   │
+│ ┌─────────────────────────────────┐ │    │ ┌──────────────────────────────┐   │
+│ │      WebSocket Client           │ │←─► │ │   VAD Feedback Server        │   │
+│ │   - Real-time feedback          │ │    │ │   - Port 8001                │   │
+│ │   - Threshold updates           │ │    │ │   - JSON protocol            │   │
+│ │   - Wake word validation        │ │    │ │   - Multi-device sync        │   │
+│ └─────────────────────────────────┘ │    │ └──────────────────────────────┘   │
+│                ↓                    │    │                ↓                   │
+│ ┌─────────────────────────────────┐ │    │ ┌──────────────────────────────┐   │
+│ │     Round Display UI            │ │    │ │      VAD Coordinator         │   │
+│ │   - Audio level visualization  │ │    │ │   - 5 fusion strategies      │   │
+│ │   - Connection status           │ │    │ │   - Edge + server fusion     │   │
+│ │   - Wake word feedback          │ │    │ │   - Adaptive learning        │   │
+│ └─────────────────────────────────┘ │    │ └──────────────────────────────┘   │
+└─────────────────────────────────────┘    └────────────────────────────────────┘
 ```
 
 ## Quick Start
 
-### 1. ESP32P4 Setup
+### 1. ESP32-P4 Setup
 
-1. **Configure your ESP32P4 device** in `/main/main.c`:
+1. **Configure your ESP32-P4 device** with Phase 6C firmware:
    ```c
+   // In main/howdy_phase6_howdytts_integration.c
    #define WIFI_SSID     "your_wifi_network"
-   #define WIFI_PASSWORD "your_wifi_password"
-   #define SERVER_IP     "192.168.1.100"  // HowdyTTS server IP
+   #define WIFI_PASSWORD "your_wifi_password"  
+   #define SERVER_IP     "192.168.1.100"      // HowdyTTS server IP
+   #define WAKE_WORD_ENABLED true              // Enable wake word detection
    ```
 
-2. **Build and flash** the ESP32P4 firmware:
+2. **Build and flash** the Phase 6C firmware:
    ```bash
-   cd /path/to/ESP32P4/HowdyScreen
+   cd /Users/silverlinings/Desktop/Coding/ESP32P4/HowdyScreen
    idf.py build
    idf.py -p /dev/cu.usbserial-* flash monitor
    ```
 
-### 2. HowdyTTS Setup
+### 2. HowdyTTS Launch (Updated for Phase 6C)
 
-1. **Install additional dependencies**:
+1. **Start HowdyTTS with conda environment**:
    ```bash
-   pip install opuslib websocket-client
+   cd /Users/silverlinings/Desktop/Coding/RBP/HowdyTTS
+   python launch_howdy_shell.py
    ```
+   
+   This automatically:
+   - Activates `howdy310` conda environment
+   - Starts FastWhisperAPI server (port 8000)
+   - Launches `run_voice_assistant.py` with full ESP32-P4 integration
 
-2. **Run with wireless support**:
+2. **Advanced Launch Options**:
    ```bash
-   # Use any available wireless device
+   # Use wireless ESP32-P4 devices (auto-discovery)
    python run_voice_assistant.py --wireless
    
-   # Target specific room
-   python run_voice_assistant.py --room "Living Room"
+   # Target specific room device  
+   python run_voice_assistant.py --wireless --room "Living Room"
    
-   # List available devices
+   # Auto-detect best audio source (wireless first, local fallback)
+   python run_voice_assistant.py --auto
+   
+   # List available ESP32-P4 devices
    python run_voice_assistant.py --list-devices
    ```
+
+### 3. System Verification
+
+Once both systems are running, you should see:
+
+**ESP32-P4 Serial Output:**
+```
+I (12345) HOWDY: WiFi connected to your_wifi_network
+I (12346) HOWDY: Enhanced VAD initialized  
+I (12347) HOWDY: Wake word detection active - "Hey Howdy"
+I (12348) HOWDY: WebSocket feedback client connected to 192.168.1.100:8001
+I (12349) HOWDY: UDP audio streaming to 192.168.1.100:8000
+```
+
+**HowdyTTS Server Output:**
+```
+🤠 HowdyScreen device ESP32P4_001 connected (Living Room)
+✅ VAD Coordinator: Enhanced VAD packet received (confidence: 0.85)  
+🎯 Wake word "Hey Howdy" detected with 0.72 confidence
+✓ Porcupine validation: Wake word confirmed
+→ WebSocket feedback sent: threshold_update
+```
 
 ## Usage Examples
 
@@ -117,31 +178,82 @@ Wireless devices report their status including:
 - **Battery level** (if applicable)
 - **Connection status** (ready, recording, muted, error)
 
-## Audio Pipeline Integration
+## Enhanced Audio Pipeline Integration (Phase 6C)
 
-The wireless audio integration maintains compatibility with HowdyTTS's existing audio processing:
+The Phase 6C implementation provides advanced bidirectional VAD and wake word integration:
 
-### Voice Activity Detection (VAD)
-- Uses the same **Silero neural VAD** as local microphones
-- **Intelligent utterance detection** for natural conversation flow
-- **Pre-speech buffering** to capture speech beginnings
+### Bidirectional VAD System
+- **Edge VAD**: ESP32-P4 enhanced VAD with spectral analysis and consistency checking
+- **Server VAD**: Silero neural VAD with deep learning accuracy  
+- **VAD Fusion**: 5 strategies for optimal performance:
+  1. **Edge Priority**: Fast response using edge VAD with server backup
+  2. **Server Priority**: High accuracy using server VAD with edge confirmation
+  3. **Confidence Weighted**: Dynamic weighting based on confidence scores
+  4. **Adaptive Learning**: Self-improving based on historical performance
+  5. **Majority Vote**: Consensus-based decision making
 
-### Audio Quality
-- **16kHz mono audio** streaming
-- **OPUS compression** for minimal latency (2-5ms)
-- **Automatic gain control** and noise suppression on ESP32P4
+### Wake Word Detection System
+- **ESP32-P4 Edge Detection**: Lightweight "Hey Howdy" pattern matching with syllable counting
+- **Porcupine Server Validation**: High-accuracy server-side wake word confirmation
+- **Hybrid Consensus**: Combines edge speed with server accuracy
+- **Real-time Adaptation**: WebSocket feedback for threshold optimization
 
-### Processing Flow
+### Enhanced Protocol Stack
+- **VERSION_WAKE_WORD (0x03)**: Extended UDP protocol with wake word data
+- **24-byte Headers**: VAD (12 bytes) + Wake word (12 bytes) metadata
+- **WebSocket Feedback**: Port 8001 for bidirectional communication
+- **Multi-device Coordination**: Synchronized wake word events across devices
+
+### Processing Flow (Phase 6C)
 ```
-ESP32P4 Device → UDP/OPUS → HowdyTTS → VAD → Transcription → LLM → TTS → ESP32P4 Speaker
+ESP32-P4 Device:
+Audio → Enhanced VAD → Wake Word Detection → Enhanced UDP (24-byte) → HowdyTTS
+
+HowdyTTS Server:  
+Enhanced UDP → Protocol Parser → VAD Coordinator → Wake Word Validation → Response
+                     ↓                                      ↓
+              WebSocket Feedback ←←←←←←←←← Porcupine Validation
+                     ↓
+              ESP32-P4 Threshold Updates + Wake Word Confirmation
 ```
 
 ## Network Configuration
 
 ### Firewall Settings
 Ensure these ports are open on your HowdyTTS server:
-- **UDP 8000**: Audio streaming from ESP32P4 devices
-- **UDP 8001**: Device discovery broadcasts
+- **UDP 8000**: Enhanced audio streaming from ESP32-P4 devices
+- **TCP 8001**: WebSocket feedback server for VAD corrections
+- **UDP 5353**: mDNS service discovery broadcasts
+
+### Runtime Audio Source Control
+HowdyTTS supports runtime switching between local and wireless microphones:
+
+**Hotkey Controls** (if keyboard module available):
+```
+Ctrl+Alt+L - Switch to local microphone
+Ctrl+Alt+W - Switch to wireless microphone  
+Ctrl+Alt+T - Toggle audio source
+Ctrl+Alt+I - Show audio source info
+Ctrl+Alt+D - List wireless devices
+```
+
+**Programmatic Control**:
+```python
+from voice_assistant.audio_source_manager import get_audio_manager
+
+# Get current audio manager
+manager = get_audio_manager()
+
+# Switch to wireless
+manager.switch_to_wireless("Living Room")
+
+# Switch to local  
+manager.switch_to_local()
+
+# Get current source info
+info = manager.get_source_info()
+print(f"Current source: {info['current_source']}")
+```
 
 ### WiFi Optimization
 For best audio quality:

@@ -60,3 +60,5 @@ keyboard>=0.13.5
 # Wireless ESP32P4 device support
 opuslib>=3.0.1  # OPUS audio codec for wireless streaming
 websocket-client>=1.0.0  # WebSocket communication with devices
+websockets>=12.0  # WebSocket server for TTS audio streaming to ESP32P4 devices  
+zeroconf>=0.115.0  # mDNS service discovery for network-agnostic ESP32P4 device detection

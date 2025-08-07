@@ -262,19 +262,66 @@ def main():
         selected_source = audio_source_manager.auto_select_source()
         print(f"{Fore.GREEN}Auto-selected audio source: {selected_source.value}{Fore.RESET}")
     elif args.wireless or args.room:
+        print(f"{Fore.CYAN}=" * 60 + Fore.RESET)
+        print(f"{Fore.YELLOW}🎯 Wireless Mode - Waiting for ESP32-P4 HowdyScreen...{Fore.RESET}")
+        print(f"{Fore.CYAN}=" * 60 + Fore.RESET)
+        print(f"{Fore.CYAN}📡 Discovery server listening on UDP port 8001{Fore.RESET}")
+        print(f"{Fore.CYAN}⏳ Waiting for ESP32-P4 to send 'HOWDYTTS_DISCOVERY' packet...{Fore.RESET}")
+        print()
+        
+        # In wireless mode, wait indefinitely for ESP32-P4 connection
+        device_found = False
+        start_time = time.time()
+        
+        # Initialize wireless mode
         if audio_source_manager.switch_to_wireless(args.room):
-            print(f"{Fore.GREEN}Using wireless audio source{Fore.RESET}")
-            if args.room:
-                print(f"{Fore.CYAN}Target room: {args.room}{Fore.RESET}")
+            print(f"{Fore.CYAN}Wireless mode initialized successfully!{Fore.RESET}")
+            print(f"{Fore.YELLOW}Waiting indefinitely for ESP32-P4 devices...{Fore.RESET}")
+            
+            # Keep checking for devices indefinitely
+            while not device_found and not stop_signal.is_set():
+                info = audio_source_manager.get_source_info()
+                if info.get('wireless_devices', 0) > 0:
+                    device_found = True
+                    print(f"\n{Fore.GREEN}✅ ESP32-P4 device connected!{Fore.RESET}")
+                    print(f"{Fore.GREEN}Using wireless audio source{Fore.RESET}")
+                    if args.room:
+                        print(f"{Fore.CYAN}Target room: {args.room}{Fore.RESET}")
+                    break
+                
+                # Show waiting animation
+                elapsed = int(time.time() - start_time)
+                dots = "." * (elapsed % 4)
+                print(f"\r{Fore.YELLOW}Waiting for ESP32-P4 connection{dots:4} ({elapsed}s) [Ctrl+C to exit]{Fore.RESET}", end="", flush=True)
+                time.sleep(1)
+                
+            if stop_signal.is_set():
+                print(f"\n{Fore.YELLOW}Exiting...{Fore.RESET}")
+                return
         else:
-            print(f"{Fore.YELLOW}Wireless failed, falling back to local microphone{Fore.RESET}")
-            audio_source_manager.switch_to_local()
+            print(f"{Fore.RED}Failed to initialize wireless mode{Fore.RESET}")
+            print(f"{Fore.RED}Cannot proceed in wireless mode. Please check:{Fore.RESET}")
+            print(f"  1. Network audio modules are installed")
+            print(f"  2. No permission errors for network access")
+            print(f"  3. System firewall allows UDP port 8001")
+            print(f"\n{Fore.RED}Exiting...{Fore.RESET}")
+            return
+        
+        print()  # Add blank line after connection status
     
     # Show current audio source info
     info = audio_source_manager.get_source_info()
     print(f"{Fore.CYAN}Audio source: {info['current_source']}{Fore.RESET}")
     if info.get('wireless_devices', 0) > 0:
         print(f"{Fore.CYAN}Wireless devices: {info['wireless_devices']}{Fore.RESET}")
+        
+        # Get device details if available
+        if hasattr(audio_source_manager, '_network_source') and audio_source_manager._network_source:
+            devices = audio_source_manager._network_source.get_available_devices()
+            if devices:
+                print(f"{Fore.CYAN}Connected ESP32-P4 devices:{Fore.RESET}")
+                for idx, device_name, device_ip in devices:
+                    print(f"  • {device_name}: {device_ip}")
     
     # Replace record_audio with manager's version (minimal overhead)
     global record_audio
@@ -286,6 +333,13 @@ def main():
     # Create necessary directories
     os.makedirs("temp/audio", exist_ok=True)
     os.makedirs("voice_samples", exist_ok=True)
+    
+    # In wireless mode with connected device, show connection banner
+    if (args.wireless or args.room) and info.get('wireless_devices', 0) > 0:
+        print(f"\n{Fore.GREEN}{'=' * 60}{Fore.RESET}")
+        print(f"{Fore.GREEN}🎯 ESP32-P4 HowdyScreen Connected Successfully!{Fore.RESET}")
+        print(f"{Fore.GREEN}{'=' * 60}{Fore.RESET}\n")
+        print(f"{Fore.CYAN}Now loading voice assistant components...{Fore.RESET}\n")
     
     # Initialize LED Matrix controller if ESP32 IP is provided
     if hasattr(Config, 'USE_LED_MATRIX') and Config.USE_LED_MATRIX and Config.ESP32_IP:

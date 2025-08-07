@@ -2,19 +2,37 @@
 
 ## Single Command Launch 🚀
 
-Instead of managing two terminals, use the unified launcher:
+Launch the complete HowdyTTS system with ESP32-P4 wireless integration:
 
 ```bash
-# The launcher auto-detects and uses your conda environment!
+# Automatic launch with conda environment (howdy310)
 python launch_howdy_shell.py
 ```
 
-**No need to manually activate conda** - the launcher will:
-1. Auto-detect your conda environment from:
-   - Current active environment
-   - `environment.yml` file  
-   - Common environment names (`howdytts`, `howdy`, etc.)
-2. Automatically run both FastWhisperAPI and HowdyTTS in that environment
+**This automatically:**
+1. **Activates `howdy310` conda environment**
+2. **Starts FastWhisperAPI server** (port 8000) 
+3. **Launches HowdyTTS** with full ESP32-P4 integration
+4. **Enables WebSocket feedback server** (port 8001)
+5. **Shows output in real-time** for monitoring
+
+### Advanced Launch Options
+
+For direct control over audio sources:
+
+```bash
+# Use wireless ESP32-P4 devices (auto-discovery)
+python run_voice_assistant.py --wireless
+
+# Target specific room device
+python run_voice_assistant.py --wireless --room "Living Room"
+
+# Auto-detect best source (wireless first, local fallback)
+python run_voice_assistant.py --auto
+
+# List available ESP32-P4 devices
+python run_voice_assistant.py --list-devices
+```
 
 ### Manual conda environment specification:
 ```bash
@@ -57,38 +75,73 @@ While HowdyTTS is running, use these hotkeys to switch audio sources:
 - **`Ctrl+Alt+I`** - Show current audio source info
 - **`Ctrl+Alt+D`** - List available wireless devices
 
-## ESP32P4 Setup
+## ESP32-P4 HowdyScreen Setup (Phase 6C)
 
-1. **Configure your ESP32P4** in `/main/main.c`:
+### Quick Setup Steps
+
+1. **Configure your ESP32-P4** with Phase 6C firmware:
    ```c
+   // In main/howdy_phase6_howdytts_integration.c
    #define WIFI_SSID     "your_network"
    #define WIFI_PASSWORD "your_password"
-   #define SERVER_IP     "192.168.1.100"  // Your computer's IP
+   #define SERVER_IP     "192.168.1.100"      // Your HowdyTTS server IP
+   #define WAKE_WORD_ENABLED true              // Enable "Hey Howdy" detection
    ```
 
-2. **Build and flash**:
+2. **Build and flash Phase 6C firmware**:
    ```bash
-   cd /path/to/ESP32P4/HowdyScreen
+   cd /Users/silverlinings/Desktop/Coding/ESP32P4/HowdyScreen
+   export IDF_TARGET=esp32p4
    idf.py build
-   idf.py flash monitor
+   idf.py -p /dev/cu.usbserial-* flash monitor
    ```
 
-3. **The device will auto-discover** and appear in HowdyTTS
+3. **Verify integration** - You should see:
+   ```
+   I (12345) HOWDY: Enhanced VAD initialized
+   I (12346) HOWDY: Wake word detection active - "Hey Howdy"  
+   I (12347) HOWDY: WebSocket feedback client connected to 192.168.1.100:8001
+   I (12348) HOWDY: UDP audio streaming to 192.168.1.100:8000
+   ```
 
-## What's Improved
+4. **Test wake word** - Say "Hey Howdy" and watch for:
+   - ESP32-P4 round display animation
+   - HowdyTTS server wake word confirmation
+   - Bidirectional VAD coordination logs
 
-### Before ❌
-- Required 2 terminals
-- Manual FastAPI startup
-- Complex wireless setup
-- No runtime switching
+### What's New in Phase 6C
 
-### Now ✅  
-- **Single command launch** - Everything starts automatically
-- **Interactive audio selection** - Choose source at startup
-- **Runtime hotkey switching** - Change sources while running
-- **Minimal overhead** - Lazy initialization of wireless components
-- **Auto-discovery** - ESP32P4 devices appear automatically
+- ✅ **Bidirectional VAD**: Edge (ESP32-P4) + Server (Silero) fusion
+- ✅ **Wake Word Detection**: "Hey Howdy" with Porcupine server validation
+- ✅ **WebSocket Feedback**: Real-time threshold adaptation (port 8001)
+- ✅ **Enhanced UDP Protocol**: VERSION_WAKE_WORD (0x03) with 24-byte headers
+- ✅ **Adaptive Learning**: System improves accuracy over time
+- ✅ **Multi-device Support**: Room-based coordination
+
+## System Architecture (Phase 6C)
+
+### Complete Bidirectional Integration
+
+```
+ESP32-P4 HowdyScreen ←→ HowdyTTS Server
+                     ↕
+        Bidirectional Communication:
+        • Enhanced UDP (port 8000) 
+        • WebSocket feedback (port 8001)
+        • VAD fusion & wake word validation
+        • Real-time threshold adaptation
+```
+
+### What's New vs. Previous Phases
+
+| Feature | Phase 1-5 | Phase 6C |
+|---------|-----------|----------|
+| **VAD** | Local only | Edge + Server fusion |
+| **Wake Word** | Server only | Edge detection + Server validation |
+| **Communication** | One-way UDP | Bidirectional UDP + WebSocket |
+| **Learning** | Static | Adaptive thresholds |
+| **Protocol** | Basic | Enhanced with 24-byte headers |
+| **Multi-device** | None | Room-based coordination |
 
 ## Troubleshooting
 

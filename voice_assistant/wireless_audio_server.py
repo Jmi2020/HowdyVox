@@ -187,7 +187,13 @@ class WirelessAudioServer:
                 if audio_data is not None and self.audio_callback:
                     # Convert to numpy array and call callback
                     audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
-                    self.audio_callback(audio_array)
+                    # Pass audio data, raw packet data, and source address for ESP32-P4 processing
+                    try:
+                        # Try new callback signature with packet data
+                        self.audio_callback(audio_array, packet_info['data'], packet_info['addr'])
+                    except TypeError:
+                        # Fallback to old callback signature for backward compatibility
+                        self.audio_callback(audio_array)
                 
             except Empty:
                 continue

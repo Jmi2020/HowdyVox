@@ -1,0 +1,18 @@
+{
+  "devices": [
+    {
+      "device_id": "ESP32P4_192_168_86_37",
+      "device_type": "ESP32P4_HowdyScreen",
+      "ip_address": "192.168.86.37",
+      "port": 8000,
+      "room": "",
+      "last_seen": 1754542690.22841,
+      "is_active": false,
+      "audio_level": 0.0,
+      "battery_level": -1,
+      "signal_strength": -1,
+      "status": "disconnected"
+    }
+  ],
+  "last_updated": 1754542885.330881
+}

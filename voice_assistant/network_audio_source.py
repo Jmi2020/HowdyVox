@@ -12,6 +12,9 @@ from .wireless_audio_server import WirelessAudioServer
 from .wireless_device_manager import WirelessDeviceManager, WirelessDevice
 from .intelligent_vad import IntelligentVAD
 from .utterance_detector import IntelligentUtteranceDetector, UtteranceContext
+from .esp32_p4_vad_coordinator import ESP32P4VADCoordinator, VADFusionStrategy, VADDecision
+from .esp32_p4_protocol import ESP32P4ProtocolParser
+from .websocket_tts_server import start_websocket_tts_server, get_websocket_tts_server
 from .config import Config
 
 class NetworkAudioSource:
@@ -52,6 +55,13 @@ class NetworkAudioSource:
         )
         self.utterance_detector = IntelligentUtteranceDetector()
         
+        # ESP32-P4 VAD coordination
+        self.vad_coordinator = ESP32P4VADCoordinator(
+            server_vad=self.vad,
+            fusion_strategy=VADFusionStrategy.ADAPTIVE
+        )
+        self.protocol_parser = ESP32P4ProtocolParser()
+        
         # Audio buffering
         self.audio_buffer = deque(maxlen=1000)  # ~32 seconds at 32ms chunks
         self.pre_speech_buffer = deque(maxlen=16)  # ~500ms pre-speech buffer
@@ -66,7 +76,9 @@ class NetworkAudioSource:
             'packets_received': 0,
             'audio_processed': 0,
             'vad_detections': 0,
-            'device_switches': 0
+            'device_switches': 0,
+            'esp32p4_enhanced_packets': 0,
+            'vad_coordinated_decisions': 0
         }
         
         # Set up callbacks
@@ -88,6 +100,21 @@ class NetworkAudioSource:
                 return False
             
             self.device_manager.start_monitoring()
+            
+            # Start WebSocket TTS server for ESP32-P4 audio playback
+            logging.info("🔊 Starting WebSocket TTS server for ESP32-P4 audio playback")
+            tts_server = start_websocket_tts_server(host="0.0.0.0", port=8002)
+            if tts_server:
+                logging.info("✅ WebSocket TTS server started on port 8002")
+                
+                # Set up TTS request callback
+                def handle_tts_request(device_id: str, text: str):
+                    logging.info(f"🎤 TTS request from {device_id}: {text[:50]}{'...' if len(text) > 50 else ''}")
+                    # TTS generation will be handled by the main voice assistant
+                
+                tts_server.set_tts_request_callback(handle_tts_request)
+            else:
+                logging.warning("⚠️ Failed to start WebSocket TTS server")
             
             # Wait a moment for device discovery
             time.sleep(2.0)
@@ -112,11 +139,37 @@ class NetworkAudioSource:
         self.audio_server.stop()
         self.device_manager.stop_monitoring()
         
+        # Stop WebSocket TTS server
+        from .websocket_tts_server import stop_websocket_tts_server
+        stop_websocket_tts_server()
+        logging.info("🔇 WebSocket TTS server stopped")
+        
         # Wait for recording thread to finish
         if self.recording_thread and self.recording_thread.is_alive():
             self.recording_thread.join(timeout=2.0)
         
         logging.info("NetworkAudioSource stopped")
+    
+    def send_tts_audio_to_devices(self, audio_data: bytes, text: str = "") -> bool:
+        """Send TTS audio to all connected ESP32-P4 devices."""
+        tts_server = get_websocket_tts_server()
+        if not tts_server:
+            logging.warning("WebSocket TTS server not available")
+            return False
+        
+        devices = tts_server.get_connected_devices()
+        if not devices:
+            logging.info("No ESP32-P4 devices connected for TTS playback")
+            return False
+        
+        success_count = 0
+        for device_id in devices:
+            if tts_server.send_tts_audio_sync(device_id, audio_data):
+                success_count += 1
+                logging.info(f"🔊 Sent TTS audio to {device_id}: '{text[:30]}{'...' if len(text) > 30 else ''}'")
+        
+        logging.info(f"📡 TTS audio sent to {success_count}/{len(devices)} ESP32-P4 devices")
+        return success_count > 0
     
     def record_audio(self, 
                     file_path: str,
@@ -232,10 +285,17 @@ class NetworkAudioSource:
         self.active_device = active_devices[0]
         logging.info(f"Selected active device: {self.active_device.device_id}")
     
-    def _on_audio_received(self, audio_data: np.ndarray):
-        """Callback for receiving audio data from wireless server."""
+    def _on_audio_received(self, audio_data: np.ndarray, raw_packet_data: bytes = None, source_addr: tuple = None):
+        """Callback for receiving audio data from wireless server with ESP32-P4 packet parsing."""
         if not self.active_device or not self.is_recording:
             return
+        
+        # Store raw packet info for ESP32-P4 processing
+        packet_info = None
+        if raw_packet_data and source_addr:
+            packet_info = self.protocol_parser.parse_packet(raw_packet_data, source_addr)
+            if packet_info and self.protocol_parser.is_enhanced_packet(packet_info):
+                self.stats['esp32p4_enhanced_packets'] += 1
         
         # Convert to int16 for compatibility
         if audio_data.dtype != np.int16:
@@ -251,8 +311,13 @@ class NetworkAudioSource:
             else:
                 audio_int16 = audio_int16[:self.chunk_size]
         
-        # Add to buffer
-        self.audio_buffer.append(audio_int16)
+        # Store both processed audio and packet info for VAD coordination
+        audio_entry = {
+            'audio_data': audio_int16,
+            'packet_info': packet_info,
+            'timestamp': time.time()
+        }
+        self.audio_buffer.append(audio_entry)
         self.stats['packets_received'] += 1
         
         # Update device audio level
@@ -279,15 +344,39 @@ class NetworkAudioSource:
                     time.sleep(0.01)
                     continue
                 
-                # Get next audio chunk
-                audio_chunk = self.audio_buffer.popleft()
+                # Get next audio entry
+                audio_entry = self.audio_buffer.popleft()
+                if isinstance(audio_entry, dict):
+                    audio_chunk = audio_entry['audio_data']
+                    packet_info = audio_entry.get('packet_info')
+                else:
+                    # Backward compatibility with old format
+                    audio_chunk = audio_entry
+                    packet_info = None
+                
                 self.stats['audio_processed'] += 1
                 
                 # Add to pre-speech buffer
                 self.pre_speech_buffer.append(audio_chunk)
                 
-                # Run VAD
-                is_speech = self.vad.is_speech(audio_chunk)
+                # Run coordinated VAD
+                if packet_info:
+                    # Use ESP32-P4 VAD coordination
+                    vad_result = self.vad_coordinator.process_packet(
+                        packet_info, 
+                        audio_chunk.astype(np.float32) / 32768.0
+                    )
+                    is_speech = vad_result.decision in [VADDecision.SPEECH_DETECTED, VADDecision.SPEECH_START]
+                    self.stats['vad_coordinated_decisions'] += 1
+                    
+                    # Log enhanced VAD information
+                    if logging.getLogger().isEnabledFor(logging.DEBUG):
+                        logging.debug(f"VAD Coordination: {vad_result.decision.value}, "
+                                    f"confidence: {vad_result.confidence:.3f}, "
+                                    f"method: {vad_result.coordination_method}")
+                else:
+                    # Fallback to server-only VAD
+                    is_speech, _ = self.vad.process_chunk(audio_chunk.astype(np.float32) / 32768.0)
                 
                 if is_speech:
                     self.stats['vad_detections'] += 1
@@ -373,15 +462,48 @@ class NetworkAudioSource:
         """Get network audio source statistics."""
         server_stats = self.audio_server.get_stats()
         device_stats = self.device_manager.get_stats()
+        vad_stats = self.vad_coordinator.get_performance_metrics()
+        protocol_stats = self.protocol_parser.get_stats()
         
         return {
             'network_audio': self.stats,
             'audio_server': server_stats,
             'device_manager': device_stats,
+            'vad_coordination': vad_stats._asdict(),
+            'esp32p4_protocol': protocol_stats,
             'active_device': self.active_device.device_id if self.active_device else None,
             'target_room': self.target_room,
             'is_recording': self.is_recording
         }
+    
+    def set_vad_fusion_strategy(self, strategy: VADFusionStrategy):
+        """Change VAD fusion strategy at runtime."""
+        self.vad_coordinator.set_fusion_strategy(strategy)
+        logging.info(f"VAD fusion strategy updated to {strategy.value}")
+    
+    def provide_vad_feedback(self, is_correct: bool, decision_timestamp: float = None):
+        """
+        Provide feedback on VAD decision accuracy for learning.
+        
+        Args:
+            is_correct: Whether the VAD decision was correct
+            decision_timestamp: Timestamp of decision, or None for most recent
+        """
+        if decision_timestamp is None:
+            decision_timestamp = time.time()
+        
+        self.vad_coordinator.provide_feedback(is_correct, decision_timestamp)
+        logging.debug(f"VAD feedback provided: {'correct' if is_correct else 'incorrect'}")
+    
+    def get_esp32p4_device_states(self) -> dict:
+        """Get ESP32-P4 device VAD states."""
+        return self.vad_coordinator.get_device_states()
+    
+    def reset_vad_metrics(self):
+        """Reset VAD coordination metrics."""
+        self.vad_coordinator.reset_metrics()
+        self.protocol_parser.reset_stats()
+        logging.info("VAD coordination metrics reset")
 
 
 # Example usage and testing
