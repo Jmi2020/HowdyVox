@@ -8,7 +8,7 @@ import gc  # For garbage collection
 import re
 import argparse
 from colorama import Fore, init
-from voice_assistant.audio import record_audio, play_audio
+from voice_assistant.audio import play_audio
 from voice_assistant.transcription import transcribe_audio
 from voice_assistant.response_generation import generate_response, preload_ollama_model
 from voice_assistant.text_to_speech import text_to_speech, get_next_chunk, get_chunk_generation_stats, generation_complete
@@ -27,7 +27,7 @@ from voice_assistant.wake_word import WakeWordDetector, SpeechRecognitionWakeWor
 from voice_assistant.network_audio_source import NetworkAudioSource
 from voice_assistant.wireless_device_manager import WirelessDeviceManager
 from voice_assistant.audio_source_manager import AudioSourceManager, AudioSourceType, get_audio_manager, set_audio_manager, cleanup_audio_manager
-from voice_assistant.hotkey_manager import get_hotkey_manager, start_hotkeys, stop_hotkeys
+from voice_assistant.hotkey_manager import start_hotkeys, stop_hotkeys
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -46,6 +46,32 @@ activation_sound_playing = threading.Event()  # Flag to track if activation soun
 is_first_turn_after_wake = threading.Event()  # Flag to track if this is the first turn after wake word
 network_audio_source = None  # Wireless audio source instance
 audio_source_manager = None  # Audio source manager instance
+WIRELESS_MODE_ENABLED = False  # Runtime flag set by CLI
+
+
+def _is_wireless_audio_active() -> bool:
+    """Return True when the ESP32-P4 wireless pipeline is connected and selected."""
+    if not audio_source_manager:
+        return False
+
+    try:
+        network_source = getattr(audio_source_manager, "_network_source", None)
+        if not network_source:
+            return False
+
+        if audio_source_manager.get_current_source() != AudioSourceType.WIRELESS:
+            return False
+
+        if hasattr(network_source, "has_recent_audio") and network_source.has_recent_audio():
+            return True
+
+        if hasattr(network_source, "is_esp32p4_connected") and network_source.is_esp32p4_connected():
+            return True
+    except Exception as exc:
+        logging.debug(f"Wireless audio check failed: {exc}")
+
+    # Default to True while the wireless path is selected to avoid premature fallbacks.
+    return audio_source_manager.get_current_source() == AudioSourceType.WIRELESS
 
 def check_end_conversation(text):
     """
@@ -135,14 +161,27 @@ def safe_start_wake_word_detection():
             except Exception as e:
                 logging.error(f"Error stopping existing wake word detector: {e}")
         
+        # NEW: Check if we should use wireless audio for wake word detection
+        use_wireless = (audio_source_manager and 
+                       audio_source_manager.get_current_source() == AudioSourceType.WIRELESS)
+        
         # Create a new detector
         print(Fore.CYAN + "Starting wake word detection..." + Fore.RESET)
+        if use_wireless:
+            print(Fore.YELLOW + "Using wireless audio for wake word detection" + Fore.RESET)
+        
         try:
-            wake_word_detector = WakeWordDetector(wake_word_callback=handle_wake_word)
+            wake_word_detector = WakeWordDetector(
+                wake_word_callback=handle_wake_word,
+                use_wireless_audio=use_wireless  # NEW parameter
+            )
             print(Fore.GREEN + "Using Porcupine for wake word detection" + Fore.RESET)
         except Exception as e:
             print(Fore.YELLOW + f"Porcupine not available ({e}), falling back to SpeechRecognition" + Fore.RESET)
-            wake_word_detector = SpeechRecognitionWakeWord(wake_word_callback=handle_wake_word)
+            wake_word_detector = SpeechRecognitionWakeWord(
+                wake_word_callback=handle_wake_word,
+                use_wireless_audio=use_wireless  # NEW parameter
+            )
             print(Fore.GREEN + "Using SpeechRecognition for wake word detection" + Fore.RESET)
         
         # Start the detector
@@ -154,7 +193,7 @@ def safe_start_wake_word_detection():
         
         # Update LED matrix to "waiting" state when wake word detection is active
         if led_matrix:
-            led_matrix.set_waiting()
+            led_matrix.set_listening()
         
         return True
     except Exception as e:
@@ -181,7 +220,7 @@ def signal_handler(sig, frame):
     
     # Set matrix to waiting state before exiting
     if led_matrix:
-        led_matrix.set_waiting()
+        led_matrix.set_listening()
     
     # Cleanup audio source manager
     if audio_source_manager:
@@ -218,10 +257,17 @@ def main():
                        help='Target specific room for wireless audio (e.g., "Living Room")')
     parser.add_argument('--list-devices', action='store_true',
                        help='List available wireless devices and exit')
-    parser.add_argument('--auto', action='store_true',
-                       help='Auto-detect audio source (wireless first, local fallback)')
     
     args = parser.parse_args()
+    
+    if args.room and not args.wireless:
+        parser.error("--room requires --wireless")
+    
+    wireless_mode = bool(args.wireless)
+    target_room = args.room if wireless_mode else None
+    
+    global WIRELESS_MODE_ENABLED
+    WIRELESS_MODE_ENABLED = wireless_mode
     
     # Determine initial audio source
     if args.list_devices:
@@ -238,15 +284,13 @@ def main():
         return
     
     # Initialize audio source manager
-    if args.wireless or args.room:
+    if wireless_mode:
         initial_source = AudioSourceType.WIRELESS
-    elif args.auto:
-        initial_source = AudioSourceType.LOCAL  # Will auto-select in manager
     else:
         initial_source = AudioSourceType.LOCAL
     
     print(f"{Fore.CYAN}Initializing audio source manager...{Fore.RESET}")
-    audio_source_manager = AudioSourceManager(initial_source, target_room=args.room)
+    audio_source_manager = AudioSourceManager(initial_source, target_room=target_room)
     set_audio_manager(audio_source_manager)
     
     # Set up source change callback
@@ -258,10 +302,7 @@ def main():
     audio_source_manager.set_source_changed_callback(on_source_changed)
     
     # Auto-select or set initial source
-    if args.auto:
-        selected_source = audio_source_manager.auto_select_source()
-        print(f"{Fore.GREEN}Auto-selected audio source: {selected_source.value}{Fore.RESET}")
-    elif args.wireless or args.room:
+    if wireless_mode:
         print(f"{Fore.CYAN}=" * 60 + Fore.RESET)
         print(f"{Fore.YELLOW}🎯 Wireless Mode - Waiting for ESP32-P4 HowdyScreen...{Fore.RESET}")
         print(f"{Fore.CYAN}=" * 60 + Fore.RESET)
@@ -274,7 +315,7 @@ def main():
         start_time = time.time()
         
         # Initialize wireless mode
-        if audio_source_manager.switch_to_wireless(args.room):
+        if audio_source_manager.switch_to_wireless(target_room):
             print(f"{Fore.CYAN}Wireless mode initialized successfully!{Fore.RESET}")
             print(f"{Fore.YELLOW}Waiting indefinitely for ESP32-P4 devices...{Fore.RESET}")
             
@@ -285,8 +326,8 @@ def main():
                     device_found = True
                     print(f"\n{Fore.GREEN}✅ ESP32-P4 device connected!{Fore.RESET}")
                     print(f"{Fore.GREEN}Using wireless audio source{Fore.RESET}")
-                    if args.room:
-                        print(f"{Fore.CYAN}Target room: {args.room}{Fore.RESET}")
+                    if target_room:
+                        print(f"{Fore.CYAN}Target room: {target_room}{Fore.RESET}")
                     break
                 
                 # Show waiting animation
@@ -323,10 +364,6 @@ def main():
                 for idx, device_name, device_ip in devices:
                     print(f"  • {device_name}: {device_ip}")
     
-    # Replace record_audio with manager's version (minimal overhead)
-    global record_audio
-    record_audio = audio_source_manager.record_audio
-    
     # Set up signal handler for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
     
@@ -335,18 +372,31 @@ def main():
     os.makedirs("voice_samples", exist_ok=True)
     
     # In wireless mode with connected device, show connection banner
-    if (args.wireless or args.room) and info.get('wireless_devices', 0) > 0:
+    if wireless_mode and info.get('wireless_devices', 0) > 0:
         print(f"\n{Fore.GREEN}{'=' * 60}{Fore.RESET}")
         print(f"{Fore.GREEN}🎯 ESP32-P4 HowdyScreen Connected Successfully!{Fore.RESET}")
         print(f"{Fore.GREEN}{'=' * 60}{Fore.RESET}\n")
         print(f"{Fore.CYAN}Now loading voice assistant components...{Fore.RESET}\n")
     
     # Initialize LED Matrix controller if ESP32 IP is provided
+    led_matrix = None
     if hasattr(Config, 'USE_LED_MATRIX') and Config.USE_LED_MATRIX and Config.ESP32_IP:
         logging.info(f"{Fore.CYAN}Initializing ESP32 LED Matrix controller with IP: {Config.ESP32_IP}{Fore.RESET}")
         led_matrix = LEDMatrixController(Config.ESP32_IP)
-        # Set initial state to waiting for wake word
-        led_matrix.set_waiting()
+
+        def _audio_state_callback(state: str):
+            audio_modes = {
+                "waiting": "mic_on_speaker_off",
+                "listening": "mic_on_speaker_off",
+                "thinking": "mic_speaker_simultaneous",
+                "speaking": "mic_off_speaker_on",
+            }
+            mode = audio_modes.get(state, "mic_on_speaker_off")
+            logging.info(f"[AudioMode] {mode} (state='{state}')")
+
+        led_matrix.set_state_callback(_audio_state_callback)
+        # Default to listening for wireless audio when idle
+        led_matrix.set_listening()
     
     # Check if we have a notification sound, create a simple one if not
     activate_sound = "voice_samples/activate.wav"
@@ -393,13 +443,14 @@ def main():
     ]
     
     # Start hotkey manager for runtime audio source switching
-    if start_hotkeys():
+    if start_hotkeys(enable_wireless=wireless_mode):
         print(f"{Fore.GREEN}Runtime hotkeys enabled:{Fore.RESET}")
         print(f"  {Fore.CYAN}Ctrl+Alt+L{Fore.RESET} - Switch to local microphone")
-        print(f"  {Fore.CYAN}Ctrl+Alt+W{Fore.RESET} - Switch to wireless microphone")
-        print(f"  {Fore.CYAN}Ctrl+Alt+T{Fore.RESET} - Toggle audio source")
         print(f"  {Fore.CYAN}Ctrl+Alt+I{Fore.RESET} - Show audio source info")
-        print(f"  {Fore.CYAN}Ctrl+Alt+D{Fore.RESET} - List wireless devices")
+        if wireless_mode:
+            print(f"  {Fore.CYAN}Ctrl+Alt+W{Fore.RESET} - Switch to wireless microphone")
+            print(f"  {Fore.CYAN}Ctrl+Alt+T{Fore.RESET} - Toggle audio source")
+            print(f"  {Fore.CYAN}Ctrl+Alt+D{Fore.RESET} - List wireless devices")
     else:
         print(f"{Fore.YELLOW}Runtime hotkeys disabled (keyboard module not available){Fore.RESET}")
     
@@ -467,8 +518,25 @@ def main():
             # Check if we need to apply wake word filtering
             apply_wake_word_filter = is_first_turn_after_wake.is_set()
             
-            # Record audio with the appropriate flag
-            recording_success = record_audio(Config.INPUT_AUDIO, is_wake_word_response=apply_wake_word_filter)
+            # Determine whether wireless audio is active
+            wireless_active = False
+            if WIRELESS_MODE_ENABLED:
+                if audio_source_manager and audio_source_manager.get_current_source() != AudioSourceType.WIRELESS:
+                    audio_source_manager.switch_to_wireless(audio_source_manager.target_room)
+                wireless_active = _is_wireless_audio_active()
+
+            if not wireless_active and audio_source_manager and audio_source_manager.get_current_source() != AudioSourceType.LOCAL:
+                audio_source_manager.switch_to_local()
+
+            if wireless_active:
+                logging.info("📡 Using ESP32-P4 wireless audio recorder")
+            else:
+                logging.info("🎙️ Using local microphone for capture")
+
+            recording_success = audio_source_manager.record_audio(
+                Config.INPUT_AUDIO,
+                is_wake_word_response=apply_wake_word_filter
+            )
             
             # Clear the first turn flag after recording
             is_first_turn_after_wake.clear()
@@ -481,7 +549,7 @@ def main():
                 conversation_active.clear()
                 # Reset LED matrix to waiting
                 if led_matrix:
-                    led_matrix.set_waiting()
+                    led_matrix.set_listening()
                 print(Fore.YELLOW + "Sorry, I'm having trouble hearing you. Say 'Hey Howdy' to try again!" + Fore.RESET)
                 
                 # Aggressive cleanup to prevent memory leaks and segfaults
@@ -538,7 +606,7 @@ def main():
                 print(Fore.YELLOW + "Goodbye, partner! Happy trails!" + Fore.RESET)
                 # Set matrix to waiting state before exiting
                 if led_matrix:
-                    led_matrix.set_waiting()
+                    led_matrix.set_listening()
                 stop_signal.set()
                 break
             
@@ -663,11 +731,15 @@ def main():
                         first_chunk_start = time.time()
                         logging.info(f"Starting playback of first chunk after {playback_delay:.3f}s stabilization")
                         
-                        # Play audio locally
-                        play_audio(first_chunk_file)
-                        
+                        wireless_active = WIRELESS_MODE_ENABLED and _is_wireless_audio_active()
+
+                        # Play audio locally only when not actively using the wireless path
+                        if not wireless_active:
+                            logging.info("🎧 Wireless speaker unavailable – playing TTS locally")
+                            play_audio(first_chunk_file)
+
                         # Send to ESP32-P4 devices if using wireless audio
-                        if audio_source_manager and hasattr(audio_source_manager, '_network_source') and audio_source_manager._network_source:
+                        if wireless_active and hasattr(audio_source_manager, '_network_source'):
                             try:
                                 success = audio_source_manager._network_source.send_tts_audio_to_devices(
                                     first_chunk_file, 
@@ -689,6 +761,7 @@ def main():
                         total_gaps = []
                         
                         while True:
+                            wireless_active = WIRELESS_MODE_ENABLED and _is_wireless_audio_active()
                             # Get comprehensive generation stats for debugging
                             stats = get_chunk_generation_stats()
                             
@@ -720,11 +793,13 @@ def main():
                                 chunk_play_start = time.time()
                                 logging.info(f"Playing chunk {chunk_index+1} (gap: {inter_chunk_time:.3f}s, queue_size: {stats['queue_size']})")
                                 
-                                # Play audio locally
-                                play_audio(next_chunk)
-                                
+                                # Play audio locally only when not using wireless output
+                                if not wireless_active:
+                                    logging.debug("🎧 Playing follow-up TTS chunk locally")
+                                    play_audio(next_chunk)
+
                                 # Send to ESP32-P4 devices if using wireless audio
-                                if audio_source_manager and hasattr(audio_source_manager, '_network_source') and audio_source_manager._network_source:
+                                if wireless_active and hasattr(audio_source_manager, '_network_source'):
                                     try:
                                         audio_source_manager._network_source.send_tts_audio_to_devices(
                                             next_chunk, 
@@ -792,7 +867,7 @@ def main():
             wake_word_detected.clear()
             conversation_active.clear()
             if led_matrix:
-                led_matrix.set_waiting()
+                led_matrix.set_listening()
             
             # Explicitly restart wake word detection after error
             cleanup_all_detectors()  # Force cleanup first
@@ -805,8 +880,8 @@ def main():
     
     # Cleanup
     if led_matrix:
-        # Set matrix to waiting state before exiting
-        led_matrix.set_waiting()
+        # Return matrix to listening state before exiting
+        led_matrix.set_listening()
     
     # Clean up detectors and audio resources
     cleanup_all_detectors()
@@ -821,7 +896,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print(f"\n{Fore.YELLOW}Shutting down due to keyboard interrupt...{Fore.RESET}")
         if led_matrix:
-            led_matrix.set_waiting()
+            led_matrix.set_listening()
         cleanup_all_detectors()
         
         # Perform targeted garbage collection to clean up audio resources
@@ -832,7 +907,7 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         if led_matrix:
-            led_matrix.set_waiting()
+            led_matrix.set_listening()
         cleanup_all_detectors()
         
         # Still try to clean up audio resources

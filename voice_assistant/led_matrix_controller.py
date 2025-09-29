@@ -26,6 +26,9 @@ class LEDMatrixController:
         self.enabled = esp32_ip is not None
         self.lock = threading.Lock()  # Thread safety for state changes
         self.current_state = None
+
+        # Optional callback to drive alternate indicators (e.g., audio mode LEDs)
+        self.state_callback = None
         
         if self.enabled:
             logging.info(f"{Fore.CYAN}LED Matrix controller initialized with ESP32 at {esp32_ip}{Fore.RESET}")
@@ -79,6 +82,17 @@ class LEDMatrixController:
             self.enabled = True
             logging.info(f"{Fore.CYAN}ESP32 IP updated to {ip}{Fore.RESET}")
             self._check_connection()
+
+    def set_state_callback(self, callback):
+        """Register a callback invoked whenever the conversation state changes."""
+        self.state_callback = callback
+
+    def _emit_state_callback(self, state):
+        if self.state_callback:
+            try:
+                self.state_callback(state)
+            except Exception as exc:
+                logging.warning(f"LED Matrix callback failed for state '{state}': {exc}")
     
     def update_state(self, state):
         """
@@ -91,6 +105,8 @@ class LEDMatrixController:
             bool: True if the update was successful, False otherwise
         """
         if not self.enabled:
+            # Drive alternate indicator when the physical LED matrix is unavailable
+            self._emit_state_callback(state)
             print(f"{Fore.YELLOW}WARNING: LED Matrix disabled. Skipping state update to: {state}{Fore.RESET}")
             return False
             
@@ -108,6 +124,7 @@ class LEDMatrixController:
                     logging.info(f"{Fore.CYAN}LED Matrix state updated to: {state}{Fore.RESET}")
                     print(f"{Fore.GREEN}✓ LED Matrix state updated to: {state}{Fore.RESET}")
                     self.current_state = state
+                    self._emit_state_callback(state)
                     return True
                 else:
                     logging.warning(f"{Fore.YELLOW}Failed to update LED Matrix state. Status code: {response.status_code}{Fore.RESET}")
@@ -159,6 +176,7 @@ class LEDMatrixController:
                         print(f"{Fore.GREEN}✓ LED Matrix set to speaking mode with text{Fore.RESET}")
                         logging.info(f"{Fore.CYAN}LED Matrix set to speaking mode with text ({text_length} chars): {preview}{Fore.RESET}")
                         self.current_state = "speaking"
+                        self._emit_state_callback("speaking")
                         return True
                     else:
                         print(f"{Fore.YELLOW}✗ /speak endpoint failed with status code: {response.status_code}{Fore.RESET}")
@@ -178,6 +196,7 @@ class LEDMatrixController:
                         print(f"{Fore.GREEN}✓ LED Matrix set to speaking mode using /state endpoint{Fore.RESET}")
                         logging.info(f"{Fore.CYAN}LED Matrix set to speaking mode with state endpoint ({text_length} chars): {preview}{Fore.RESET}")
                         self.current_state = "speaking"
+                        self._emit_state_callback("speaking")
                         return True
                     else:
                         print(f"{Fore.YELLOW}✗ /state endpoint method failed with status code: {response.status_code}{Fore.RESET}")
@@ -194,6 +213,7 @@ class LEDMatrixController:
                         preview = f"{text[:50]}{'...' if text_length > 50 else ''}"
                         logging.info(f"{Fore.CYAN}LED Matrix set to speaking mode with state endpoint ({text_length} chars): {preview}{Fore.RESET}")
                         self.current_state = "speaking"
+                        self._emit_state_callback("speaking")
                         return True
                     else:
                         logging.warning(f"{Fore.YELLOW}State endpoint method failed with status code: {response.status_code}{Fore.RESET}")

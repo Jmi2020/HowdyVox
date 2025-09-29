@@ -3,6 +3,8 @@
 import logging
 import threading
 import time
+import wave
+import audioop
 import numpy as np
 from typing import Optional, Callable, Tuple
 from collections import deque
@@ -13,7 +15,7 @@ from .wireless_device_manager import WirelessDeviceManager, WirelessDevice
 from .intelligent_vad import IntelligentVAD
 from .utterance_detector import IntelligentUtteranceDetector, UtteranceContext
 from .esp32_p4_vad_coordinator import ESP32P4VADCoordinator, VADFusionStrategy, VADDecision
-from .esp32_p4_protocol import ESP32P4ProtocolParser
+from .esp32_p4_protocol import ESP32P4ProtocolParser, ESP32P4VADFlags
 from .websocket_tts_server import start_websocket_tts_server, get_websocket_tts_server
 from .text_to_speech import text_to_speech, get_next_chunk, get_chunk_generation_stats, generation_complete
 from .config import Config
@@ -38,7 +40,7 @@ class NetworkAudioSource:
         self.target_room = target_room
         self.sample_rate = 16000
         self.channels = 1
-        self.chunk_size = 512  # 32ms chunks for Silero VAD
+        self.chunk_size = 320  # Match ESP32-P4 20ms UDP frames to avoid zero-padding
         
         # Audio components
         self.audio_server = WirelessAudioServer(
@@ -53,7 +55,7 @@ class NetworkAudioSource:
         # VAD and utterance detection
         self.vad = IntelligentVAD(
             sample_rate=self.sample_rate,
-            chunk_duration_ms=32
+            chunk_duration_ms=20  # Align with 20 ms (320 sample) wireless frames
         )
         self.utterance_detector = IntelligentUtteranceDetector()
         
@@ -66,12 +68,15 @@ class NetworkAudioSource:
         
         # Audio buffering
         self.audio_buffer = deque(maxlen=1000)  # ~32 seconds at 32ms chunks
-        self.pre_speech_buffer = deque(maxlen=16)  # ~500ms pre-speech buffer
+        self.pre_speech_buffer = deque(maxlen=24)  # ~750ms pre-speech buffer
+        self.energy_fallback_threshold = 0.003  # Lower threshold for ESP32 wireless frames
+        self.force_record_timeout = 0.8  # Seconds before we force recording to start
         
         # Recording state
         self.is_recording = False
         self.active_device: Optional[WirelessDevice] = None
         self.recording_thread: Optional[threading.Thread] = None
+        self.last_packet_timestamp: float = 0.0
         
         # Statistics
         self.stats = {
@@ -82,6 +87,10 @@ class NetworkAudioSource:
             'esp32p4_enhanced_packets': 0,
             'vad_coordinated_decisions': 0
         }
+        self._logged_enhanced_packet = False
+        self._logged_parse_failure = False
+        self._vad_residual = np.array([], dtype=np.int16)
+        self._energy_debug_counter = 0
         
         # Set up callbacks
         self.audio_server.set_audio_callback(self._on_audio_received)
@@ -92,6 +101,10 @@ class NetworkAudioSource:
         )
         
         logging.info(f"NetworkAudioSource initialized for room: {target_room or 'auto'}")
+    
+    @staticmethod
+    def _device_label(device: WirelessDevice) -> str:
+        return getattr(device, "display_name", "") or device.device_id
     
     def start(self) -> bool:
         """Start the network audio source."""
@@ -201,25 +214,35 @@ class NetworkAudioSource:
     def _convert_audio_format(self, audio_file_path: str) -> bytes:
         """Convert audio file to ESP32-P4 format (16kHz, mono, 16-bit PCM)."""
         try:
-            import soundfile as sf
-            
-            # Load audio file
-            audio_data, sample_rate = sf.read(audio_file_path, dtype='float32')
-            
-            # Convert to mono if stereo
-            if len(audio_data.shape) > 1:
-                audio_data = np.mean(audio_data, axis=1)
-            
-            # Resample to 16kHz if needed
+            with wave.open(audio_file_path, 'rb') as wav_file:
+                sample_rate = wav_file.getframerate()
+                channels = wav_file.getnchannels()
+                sample_width = wav_file.getsampwidth()
+                audio_data = wav_file.readframes(wav_file.getnframes())
+
+            if not audio_data:
+                return b''
+
+            # Convert sample width to 16-bit if needed
+            if sample_width != 2:
+                audio_data = audioop.lin2lin(audio_data, sample_width, 2)
+
+            # Convert to mono if stereo (two channels)
+            if channels == 2:
+                audio_data = audioop.tomono(audio_data, 2, 0.5, 0.5)
+            elif channels > 2:
+                logging.warning(f"Unsupported channel count ({channels}) for {audio_file_path}; averaging to mono")
+                # Average additional channels by converting to numpy
+                np_data = np.frombuffer(audio_data, dtype=np.int16).reshape(-1, channels)
+                mono = np.mean(np_data, axis=1).astype(np.int16)
+                audio_data = mono.tobytes()
+
+            # Resample to 16kHz if necessary
             if sample_rate != 16000:
-                import librosa
-                audio_data = librosa.resample(audio_data, orig_sr=sample_rate, target_sr=16000)
-            
-            # Convert to 16-bit PCM
-            audio_int16 = (audio_data * 32767).astype(np.int16)
-            
-            return audio_int16.tobytes()
-            
+                audio_data, _ = audioop.ratecv(audio_data, 2, 1, sample_rate, 16000, None)
+
+            return audio_data
+
         except Exception as e:
             logging.error(f"Audio format conversion failed: {e}")
             return b''
@@ -256,7 +279,7 @@ class NetworkAudioSource:
             logging.warning("Already recording audio")
             return False
         
-        logging.info(f"📱 Starting ESP32-P4 audio recording from {self.active_device.device_id}")
+        logging.info(f"📱 Starting ESP32-P4 audio recording from {self._device_label(self.active_device)}")
         
         # Clear buffers
         self.audio_buffer.clear()
@@ -264,6 +287,8 @@ class NetworkAudioSource:
         
         # Reset VAD state
         self.vad.reset()
+        self._vad_residual = np.array([], dtype=np.int16)
+        self._energy_debug_counter = 0
         
         # Start recording
         self.is_recording = True
@@ -290,7 +315,7 @@ class NetworkAudioSource:
     def get_available_devices(self) -> list:
         """Get list of available wireless audio devices (compatibility method)."""
         devices = self.device_manager.get_active_devices()
-        return [(i, f"{d.device_id} ({d.room or 'No room'})", d.ip_address) 
+        return [(i, f"{self._device_label(d)} ({d.room or 'No room'})", d.ip_address) 
                 for i, d in enumerate(devices)]
     
     def set_device(self, device_index: int) -> bool:
@@ -298,14 +323,14 @@ class NetworkAudioSource:
         devices = self.device_manager.get_active_devices()
         if 0 <= device_index < len(devices):
             self.active_device = devices[device_index]
-            logging.info(f"Active device set to: {self.active_device.device_id}")
+            logging.info(f"Active device set to: {self._device_label(self.active_device)}")
             return True
         return False
     
     def get_device_info(self) -> str:
         """Get current device information."""
         if self.active_device:
-            return f"Wireless Device: {self.active_device.device_id} ({self.active_device.ip_address})"
+            return f"Wireless Device: {self._device_label(self.active_device)} ({self.active_device.ip_address})"
         return "No active wireless device"
     
     def test_device(self, duration: float = 3.0) -> bool:
@@ -337,18 +362,31 @@ class NetworkAudioSource:
             for device in active_devices:
                 if device.room == self.target_room:
                     self.active_device = device
-                    logging.info(f"Selected device for room '{self.target_room}': {device.device_id}")
+                    logging.info(f"Selected device for room '{self.target_room}': {self._device_label(device)}")
                     return
             
             logging.warning(f"No device found for room '{self.target_room}', using first available")
         
         # Use first available device
         self.active_device = active_devices[0]
-        logging.info(f"Selected active device: {self.active_device.device_id}")
+        logging.info(f"Selected active device: {self._device_label(self.active_device)}")
     
     def _on_audio_received(self, audio_data: np.ndarray, raw_packet_data: bytes = None, source_addr: tuple = None):
         """Callback for receiving audio data from wireless server with ESP32-P4 packet parsing."""
-        if not self.active_device or not self.is_recording:
+        if not self.active_device:
+            return
+        
+        # Track connectivity regardless of recording state
+        now = time.time()
+        self.last_packet_timestamp = now
+        audio_level = float(np.abs(audio_data).mean()) if audio_data.size else 0.0
+        self.device_manager.update_device_status(
+            self.active_device.device_id,
+            audio_level=audio_level,
+            last_seen=now
+        )
+        
+        if not self.is_recording:
             return
         
         # Store raw packet info for ESP32-P4 processing
@@ -356,13 +394,23 @@ class NetworkAudioSource:
         if raw_packet_data and source_addr:
             packet_info = self.protocol_parser.parse_packet(raw_packet_data, source_addr)
             if packet_info and self.protocol_parser.is_enhanced_packet(packet_info):
+                if not getattr(self, "_logged_enhanced_packet", False):
+                    logging.info("✅ ESP32-P4 enhanced UDP header detected (VAD metadata available)")
+                    self._logged_enhanced_packet = True
                 self.stats['esp32p4_enhanced_packets'] += 1
+            elif packet_info is None and not getattr(self, "_logged_parse_failure", False):
+                logging.warning("⚠️ Failed to parse ESP32-P4 enhanced packet; falling back to raw audio")
+                self._logged_parse_failure = True
         
-        # Convert to int16 for compatibility
-        if audio_data.dtype != np.int16:
-            audio_int16 = (audio_data * 32767).astype(np.int16)
+        # Prefer parsed audio from ESP32-P4 packet to avoid header bytes in stream
+        if packet_info and packet_info.audio_data is not None:
+            audio_int16 = packet_info.audio_data.astype(np.int16)
         else:
-            audio_int16 = audio_data
+            # Convert to int16 for compatibility (fallback path)
+            if audio_data.dtype != np.int16:
+                audio_int16 = (audio_data * 32767).astype(np.int16)
+            else:
+                audio_int16 = audio_data
         
         # Ensure correct chunk size
         if len(audio_int16) != self.chunk_size:
@@ -376,18 +424,14 @@ class NetworkAudioSource:
         audio_entry = {
             'audio_data': audio_int16,
             'packet_info': packet_info,
-            'timestamp': time.time()
+            'timestamp': now
         }
+        if self.is_recording and self._energy_debug_counter < 20:
+            peak = int(np.max(np.abs(audio_int16))) if audio_int16.size else 0
+            logging.info("🔎 Wireless packet peak=%d (%.5f)", peak, peak / 32767.0 if peak else 0.0)
+            self._energy_debug_counter += 1
         self.audio_buffer.append(audio_entry)
         self.stats['packets_received'] += 1
-        
-        # Update device audio level
-        audio_level = np.abs(audio_data).mean()
-        self.device_manager.update_device_status(
-            self.active_device.device_id,
-            audio_level=float(audio_level),
-            last_seen=time.time()
-        )
     
     def _recording_loop(self, file_path: str, max_duration: float, silence_timeout: float, is_wake_word_response: bool = False):
         """Main recording loop with VAD and utterance detection."""
@@ -412,6 +456,8 @@ class NetworkAudioSource:
                 
                 # Get next audio entry
                 audio_entry = self.audio_buffer.popleft()
+                edge_voice_active = False
+
                 if isinstance(audio_entry, dict):
                     audio_chunk = audio_entry['audio_data']
                     packet_info = audio_entry.get('packet_info')
@@ -419,18 +465,43 @@ class NetworkAudioSource:
                     # Backward compatibility with old format
                     audio_chunk = audio_entry
                     packet_info = None
-                
+
                 self.stats['audio_processed'] += 1
                 
                 # Add to pre-speech buffer
                 self.pre_speech_buffer.append(audio_chunk)
+                audio_float = audio_chunk.astype(np.float32) / 32768.0
+                audio_level = float(np.sqrt(np.mean(np.square(audio_float))))
+                if self._energy_debug_counter < 20:
+                    max_level = float(np.max(np.abs(audio_float))) if audio_float.size else 0.0
+                    logging.info("🔎 Wireless chunk levels - rms=%.5f, peak=%.5f", audio_level, max_level)
+                    self._energy_debug_counter += 1
+
+                # Build VAD-sized chunk (Silero expects 512 samples @16k)
+                vad_chunk_ready = False
+                vad_input_float = None
+                if audio_chunk.size:
+                    combined = np.concatenate([self._vad_residual, audio_chunk])
+                    if combined.size >= self.vad.chunk_size:
+                        vad_chunk = combined[:self.vad.chunk_size]
+                        self._vad_residual = combined[self.vad.chunk_size:]
+                        vad_input_float = vad_chunk.astype(np.float32) / 32768.0
+                        vad_chunk_ready = True
+                    else:
+                        self._vad_residual = combined
                 
-                # Run coordinated VAD
-                if packet_info:
-                    # Use ESP32-P4 VAD coordination
+                # Honor edge VAD flags directly so we don't depend solely on Silero
+                if packet_info and packet_info.vad_header is not None:
+                    vad_flags = ESP32P4VADFlags(packet_info.vad_header.vad_flags)
+                    edge_voice_active = bool(vad_flags & (ESP32P4VADFlags.VOICE_ACTIVE | ESP32P4VADFlags.SPEECH_START))
+
+                # Run coordinated VAD when we have enough samples
+                vad_result = None
+                is_speech = False
+                if packet_info and vad_chunk_ready:
                     vad_result = self.vad_coordinator.process_packet(
-                        packet_info, 
-                        audio_chunk.astype(np.float32) / 32768.0
+                        packet_info,
+                        vad_input_float
                     )
                     is_speech = vad_result.decision in [VADDecision.SPEECH_DETECTED, VADDecision.SPEECH_START]
                     self.stats['vad_coordinated_decisions'] += 1
@@ -440,17 +511,44 @@ class NetworkAudioSource:
                         logging.debug(f"🔍 VAD Coordination: {vad_result.decision.value}, "
                                     f"confidence: {vad_result.confidence:.3f}, "
                                     f"method: {vad_result.coordination_method}")
+                elif packet_info and not vad_chunk_ready and logging.getLogger().isEnabledFor(logging.DEBUG):
+                    logging.debug("⏳ Awaiting enough samples for Silero VAD (have %d, need %d)",
+                                 self._vad_residual.size + audio_chunk.size,
+                                 self.vad.chunk_size)
+                elif not packet_info and vad_chunk_ready:
+                    is_speech, _ = self.vad.process_chunk(vad_input_float)
                 else:
-                    # Fallback to server-only VAD
-                    is_speech, _ = self.vad.process_chunk(audio_chunk.astype(np.float32) / 32768.0)
-                
+                    # Not enough data yet for neural VAD; rely on energy fallback
+                    is_speech = False
+
+                # Energy fallback for low-confidence wireless packets
+                if (not is_speech) and audio_level >= self.energy_fallback_threshold:
+                    logging.info(
+                        "🎚️ Energy fallback triggered (level %.4f >= %.4f)",
+                        audio_level,
+                        self.energy_fallback_threshold,
+                    )
+                    is_speech = True
+                elif logging.getLogger().isEnabledFor(logging.DEBUG):
+                    logging.debug("🔈 Wireless chunk energy=%.4f < threshold %.4f", audio_level, self.energy_fallback_threshold)
+
+                # Trust the edge device when it says speech is active
+                if edge_voice_active:
+                    logging.debug("🎙️ Edge VAD active — promoting chunk to speech")
+                    is_speech = True
+
                 # For wake word responses, be more permissive during grace period
                 if is_wake_word_response and (time.time() - start_time) < wake_word_grace_period:
                     # During grace period, consider any significant audio as speech
-                    audio_level = np.abs(audio_chunk.astype(np.float32) / 32768.0).mean()
                     if audio_level > 0.005:  # Lower threshold for wake word responses
                         is_speech = True
-                
+
+                # Force a recording start after timeout to avoid missing speech entirely
+                elapsed = time.time() - start_time
+                if (not recording_started) and elapsed >= self.force_record_timeout:
+                    logging.info("🎙️ Forcing recording start after %.1fs fallback window", elapsed)
+                    is_speech = True
+
                 if is_speech:
                     self.stats['vad_detections'] += 1
                     
@@ -484,7 +582,7 @@ class NetworkAudioSource:
         self.is_recording = False
         
         # Save recorded audio and set success flag
-        if recorded_chunks and speech_detected:
+        if recorded_chunks:
             self._save_audio(recorded_chunks, file_path)
             self._recording_success = True
             logging.info(f"💾 ESP32-P4 saved {len(recorded_chunks)} audio chunks to {file_path}")
@@ -513,7 +611,7 @@ class NetworkAudioSource:
     
     def _on_device_connected(self, device: WirelessDevice):
         """Handle device connection."""
-        logging.info(f"Wireless device connected: {device.device_id}")
+        logging.info(f"Wireless device connected: {self._device_label(device)}")
         
         # Auto-select if we don't have an active device
         if not self.active_device:
@@ -521,7 +619,7 @@ class NetworkAudioSource:
     
     def _on_device_disconnected(self, device: WirelessDevice):
         """Handle device disconnection."""
-        logging.warning(f"Wireless device disconnected: {device.device_id}")
+        logging.warning(f"Wireless device disconnected: {self._device_label(device)}")
         
         # If this was our active device, select a new one
         if self.active_device and self.active_device.device_id == device.device_id:
@@ -531,7 +629,13 @@ class NetworkAudioSource:
     
     def _on_device_status(self, device: WirelessDevice):
         """Handle device status updates."""
-        logging.debug(f"Device status update: {device.device_id} - {device.status}")
+        logging.debug(f"Device status update: {self._device_label(device)} - {device.status}")
+    
+    def has_recent_audio(self, max_age: float = 2.0) -> bool:
+        """Return True if fresh audio frames have been received recently."""
+        if self.last_packet_timestamp <= 0:
+            return False
+        return (time.time() - self.last_packet_timestamp) <= max_age
     
     def get_stats(self) -> dict:
         """Get network audio source statistics."""

@@ -48,6 +48,12 @@ class AudioSourceManager:
         self.source_changed_callback: Optional[Callable[[AudioSourceType, bool], None]] = None
         
         logging.info(f"AudioSourceManager initialized with {initial_source.value} source")
+
+        if self.current_source == AudioSourceType.WIRELESS and WIRELESS_AVAILABLE:
+            if not self.switch_to_wireless(target_room):
+                logging.warning("Failed to activate wireless source during initialization; falling back to local")
+                self.current_source = AudioSourceType.LOCAL
+                self._current_record_func = local_record_audio
     
     def set_source_changed_callback(self, callback: Callable[[AudioSourceType, bool], None]):
         """

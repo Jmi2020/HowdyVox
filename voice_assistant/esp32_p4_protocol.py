@@ -205,44 +205,35 @@ class ESP32P4ProtocolParser:
             return None
     
     def _parse_basic_header(self, header_data: bytes) -> Optional[ESP32P4AudioHeader]:
-        """Parse the basic 12-byte UDP audio header."""
-        try:
-            # Unpack basic header: sequence, sample_count, sample_rate, channels, 
-            # bits_per_sample, flags
-            unpacked = struct.unpack('<IHHBBB', header_data)
-            
-            # Pad to match expected number of fields
-            if len(unpacked) == 6:
-                sequence, sample_count, sample_rate, channels, bits_per_sample, flags = unpacked
-                # Add padding byte that was part of the struct
-                flags = (flags << 8) | unpacked[5] if len(header_data) >= 12 else flags
-            else:
-                # Handle different unpacking results
-                sequence = unpacked[0]
-                sample_count = unpacked[1]
-                sample_rate = unpacked[2] 
-                channels = unpacked[3] if len(unpacked) > 3 else 1
-                bits_per_sample = unpacked[4] if len(unpacked) > 4 else 16
-                flags = unpacked[5] if len(unpacked) > 5 else 0
-            
-            # Validate header fields
-            if not self._validate_basic_header(sequence, sample_count, sample_rate, 
-                                             channels, bits_per_sample):
-                return None
-            
-            return ESP32P4AudioHeader(
-                sequence=sequence,
-                sample_count=sample_count,
-                sample_rate=sample_rate,
-                channels=channels,
-                bits_per_sample=bits_per_sample,
-                flags=flags
-            )
-            
-        except struct.error as e:
-            logging.debug(f"Basic header parse error: {e}")
-            self.stats['invalid_headers'] += 1
-            return None
+        """Parse the basic ESP32-P4 UDP audio header (supports 12-byte and 11-byte variants)."""
+        # Try 12-byte variant first: <IHHBBH> (flags is 16-bit)
+        for fmt in ('<IHHBBH', '<IHHBBB'):
+            try:
+                unpacked = struct.unpack(fmt, header_data[:struct.calcsize(fmt)])
+                if fmt == '<IHHBBH':
+                    sequence, sample_count, sample_rate, channels, bits_per_sample, flags = unpacked
+                else:
+                    sequence, sample_count, sample_rate, channels, bits_per_sample, flags8 = unpacked
+                    flags = flags8  # 8-bit flags
+                
+                # Validate header fields
+                if not self._validate_basic_header(sequence, sample_count, sample_rate, channels, bits_per_sample):
+                    continue
+                
+                return ESP32P4AudioHeader(
+                    sequence=sequence,
+                    sample_count=sample_count,
+                    sample_rate=sample_rate,
+                    channels=channels,
+                    bits_per_sample=bits_per_sample,
+                    flags=flags
+                )
+            except struct.error:
+                continue
+        
+        logging.debug("Basic header parse error: unsupported format")
+        self.stats['invalid_headers'] += 1
+        return None
     
     def _parse_vad_header(self, vad_data: bytes) -> Optional[ESP32P4VADHeader]:
         """Parse the enhanced 12-byte VAD header."""

@@ -27,19 +27,14 @@ class HotkeyManager:
     Provides keyboard shortcuts for switching between local and wireless microphones.
     """
     
-    def __init__(self):
+    def __init__(self, enable_wireless: bool = True):
         self.enabled = KEYBOARD_AVAILABLE
         self.running = False
         self.monitor_thread: Optional[threading.Thread] = None
+        self.enable_wireless = enable_wireless
         
         # Hotkey mappings
-        self.hotkeys = {
-            'ctrl+alt+l': self._switch_to_local,
-            'ctrl+alt+w': self._switch_to_wireless,
-            'ctrl+alt+t': self._toggle_source,
-            'ctrl+alt+i': self._show_audio_info,
-            'ctrl+alt+d': self._list_devices
-        }
+        self.hotkeys = self._build_hotkey_map()
         
         # Statistics
         self.stats = {
@@ -71,11 +66,8 @@ class HotkeyManager:
                 keyboard.add_hotkey(hotkey, callback, suppress=False)
             
             logging.info("Hotkeys registered:")
-            logging.info("  Ctrl+Alt+L - Switch to local microphone")
-            logging.info("  Ctrl+Alt+W - Switch to wireless microphone")
-            logging.info("  Ctrl+Alt+T - Toggle audio source")
-            logging.info("  Ctrl+Alt+I - Show audio source info")
-            logging.info("  Ctrl+Alt+D - List wireless devices")
+            for combo, description in self._get_hotkey_descriptions().items():
+                logging.info(f"  {combo.upper()} - {description}")
             
             return True
             
@@ -198,21 +190,62 @@ class HotkeyManager:
     def is_enabled(self) -> bool:
         """Check if hotkeys are enabled and available."""
         return self.enabled and self.running
+    
+    def _build_hotkey_map(self) -> Dict[str, Callable]:
+        hotkeys = {
+            'ctrl+alt+l': self._switch_to_local,
+            'ctrl+alt+i': self._show_audio_info,
+        }
+        if self.enable_wireless:
+            hotkeys.update({
+                'ctrl+alt+w': self._switch_to_wireless,
+                'ctrl+alt+t': self._toggle_source,
+                'ctrl+alt+d': self._list_devices,
+            })
+        return hotkeys
+    
+    def _get_hotkey_descriptions(self) -> Dict[str, str]:
+        descriptions = {
+            'ctrl+alt+l': 'Switch to local microphone',
+            'ctrl+alt+i': 'Show audio source info',
+        }
+        if self.enable_wireless:
+            descriptions.update({
+                'ctrl+alt+w': 'Switch to wireless microphone',
+                'ctrl+alt+t': 'Toggle audio source',
+                'ctrl+alt+d': 'List wireless devices',
+            })
+        return descriptions
+    
+    def set_wireless_enabled(self, enable_wireless: bool):
+        if self.enable_wireless == enable_wireless:
+            return
+        self.enable_wireless = enable_wireless
+        self.hotkeys = self._build_hotkey_map()
+        if self.running and KEYBOARD_AVAILABLE:
+            try:
+                keyboard.unhook_all_hotkeys()
+            except Exception as exc:
+                logging.debug(f"Error unhooking hotkeys during reconfigure: {exc}")
+            self.running = False
+            self.start()
 
 
 # Global hotkey manager instance
 _global_hotkey_manager: Optional[HotkeyManager] = None
 
-def get_hotkey_manager() -> HotkeyManager:
+def get_hotkey_manager(enable_wireless: Optional[bool] = None) -> HotkeyManager:
     """Get the global hotkey manager."""
     global _global_hotkey_manager
     if _global_hotkey_manager is None:
-        _global_hotkey_manager = HotkeyManager()
+        _global_hotkey_manager = HotkeyManager(enable_wireless=enable_wireless if enable_wireless is not None else True)
+    elif enable_wireless is not None:
+        _global_hotkey_manager.set_wireless_enabled(enable_wireless)
     return _global_hotkey_manager
 
-def start_hotkeys() -> bool:
+def start_hotkeys(enable_wireless: bool = True) -> bool:
     """Start the global hotkey manager."""
-    manager = get_hotkey_manager()
+    manager = get_hotkey_manager(enable_wireless=enable_wireless)
     return manager.start()
 
 def stop_hotkeys():

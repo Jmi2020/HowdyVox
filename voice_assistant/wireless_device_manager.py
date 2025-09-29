@@ -31,6 +31,7 @@ class WirelessDevice:
     battery_level: int = -1  # -1 = unknown, 0-100 = percentage
     signal_strength: int = -1  # WiFi RSSI in dBm
     status: str = "unknown"  # unknown, ready, recording, muted, error
+    display_name: str = ""  # human-friendly label shown in logs/UI
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -171,9 +172,14 @@ class WirelessDeviceManager:
             device.last_seen = current_time
             device.is_active = True
             
+            if device_name:
+                device.display_name = device_name
+            elif not device.display_name:
+                device.display_name = device_id
+            
             if not was_active and self.device_connected_callback:
                 self.device_connected_callback(device)
-                logging.info(f"Wireless device reconnected: {device_id} ({ip_address})")
+                logging.info(f"Wireless device reconnected: {device.display_name or device_id} ({ip_address})")
         else:
             # Create new device
             device = WirelessDevice(
@@ -183,19 +189,16 @@ class WirelessDeviceManager:
                 room=room or "Unknown",
                 last_seen=current_time,
                 is_active=True,
-                status="ready"
+                status="ready",
+                display_name=device_name or device_id
             )
             
-            # If device_name is provided, update device_id to be more descriptive
-            if device_name:
-                # Store original device_id for compatibility but use descriptive name
-                device.device_id = device_name
             self.devices[device_id] = device
             
             if self.device_connected_callback:
                 self.device_connected_callback(device)
             
-            logging.info(f"New wireless device registered: {device_id} ({ip_address})")
+            logging.info(f"New wireless device registered: {device.display_name} ({ip_address})")
         
         # Save updated configuration
         self.save_config()
@@ -229,10 +232,13 @@ class WirelessDeviceManager:
                 
                 # Update additional info from WebSocket
                 if device_id in self.devices:
-                    self.devices[device_id].room = room
-                    if device_name and device_name != device_id:
-                        # Use the descriptive device name
+                    device = self.devices[device_id]
+                    device.room = room
+                    if device_name and device_name != device.display_name:
+                        device.display_name = device_name
                         logging.info(f"📱 Updated device info: {device_id} -> {device_name} in {room}")
+                    elif not device.display_name:
+                        device.display_name = device_id
                         
         except Exception as e:
             logging.debug(f"Error syncing WebSocket device info: {e}")
@@ -240,8 +246,14 @@ class WirelessDeviceManager:
     def update_device_status(self, device_id: str, **kwargs):
         """Update device status information."""
         if device_id not in self.devices:
-            logging.warning(f"Attempt to update unknown device: {device_id}")
-            return
+            # Attempt fallback lookup by display name (for legacy callers)
+            for key, device in self.devices.items():
+                if device.display_name == device_id:
+                    device_id = key
+                    break
+            else:
+                logging.warning(f"Attempt to update unknown device: {device_id}")
+                return
         
         device = self.devices[device_id]
         updated = False
@@ -253,6 +265,12 @@ class WirelessDeviceManager:
         
         if updated:
             device.last_seen = time.time()
+            if not device.is_active:
+                device.is_active = True
+                device.status = device.status or "ready"
+                if self.device_connected_callback:
+                    self.device_connected_callback(device)
+                    logging.info(f"Wireless device reactivated: {device.display_name or device.device_id}")
             if self.device_status_callback:
                 self.device_status_callback(device)
     

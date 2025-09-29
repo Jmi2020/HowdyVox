@@ -187,7 +187,7 @@ class WebSocketTTSServer:
                     'device_id': device_id,
                     'server_time': time.time()
                 }
-                await websocket.send(json.dumps(confirm_msg))
+                await self.devices[device_id].send(json.dumps(confirm_msg))
             
             elif msg_type == 'tts_request':
                 # ESP32-P4 requesting TTS for user speech
@@ -224,6 +224,7 @@ class WebSocketTTSServer:
                 # Respond to ping
                 pong_msg = {'type': 'pong', 'timestamp': int(time.time() * 1000)}
                 await self.devices[device_id].send(json.dumps(pong_msg))
+                logging.debug(f"📡 Pong sent to {device_id}")
             
             else:
                 logging.warning(f"Unknown message type from {device_id}: {msg_type}")
@@ -253,7 +254,7 @@ class WebSocketTTSServer:
             }
             
             await self.devices[device_id].send(json.dumps(tts_msg))
-            logging.debug(f"🔊 Sent TTS audio to {device_id}: {len(audio_data)} bytes")
+            logging.info(f"🔊 Sent TTS audio to {device_id}: {len(audio_data)} bytes (session: {session_id})")
             return True
             
         except Exception as e:

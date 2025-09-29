@@ -23,6 +23,8 @@ class DeviceInfo:
     capabilities: Dict[str, Any]
     vad_accuracy: float = 0.0
     wake_word_accuracy: float = 0.0
+    last_stats: Optional[Dict[str, Any]] = None
+    last_stats_time: float = 0.0
 
 class FeedbackMessageType(Enum):
     """Types of feedback messages sent to ESP32-P4 devices."""
@@ -291,6 +293,8 @@ class ESP32P4WebSocketServer:
                 await self._handle_vad_feedback(device_id, data)
             elif msg_type == 'status_update':
                 await self._handle_status_update(device_id, data)
+            elif msg_type == 'device_statistics':
+                await self._handle_device_statistics(device_id, data)
             else:
                 logging.warning(f"Unknown message type from {device_id}: {msg_type}")
         
@@ -343,6 +347,28 @@ class ESP32P4WebSocketServer:
             if device_id in self.connected_devices:
                 device = self.connected_devices[device_id]
                 device.capabilities.update(data.get('capabilities', {}))
+
+    async def _handle_device_statistics(self, device_id: str, data: Dict):
+        """Handle periodic statistics from ESP32-P4 devices."""
+        with self.device_lock:
+            if device_id not in self.connected_devices:
+                return
+            device = self.connected_devices[device_id]
+            device.last_stats = data
+            device.last_stats_time = time.time()
+
+        wake_stats = data.get('wake_word_stats', {})
+        vad_stats = data.get('vad_stats', {})
+        logging.debug(
+            "📈 Device stats %s - detections=%s tp=%s fp=%s thr=%s voice=%s silence=%s",
+            device_id,
+            wake_stats.get('total_detections'),
+            wake_stats.get('true_positives'),
+            wake_stats.get('false_positives'),
+            wake_stats.get('current_threshold'),
+            vad_stats.get('voice_packets'),
+            vad_stats.get('silence_packets')
+        )
     
     async def _send_message(self, websocket, message: Dict):
         """Send message to WebSocket client."""
