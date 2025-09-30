@@ -83,14 +83,17 @@ def detect_leading_silence(sound, silence_threshold=-50, chunk_size=10):
     return trim_ms
 
 
-def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energy_threshold=1200, 
-                 pause_threshold=0.8, phrase_threshold=0.3, dynamic_energy_threshold=False, 
+def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energy_threshold=1200,
+                 pause_threshold=0.8, phrase_threshold=0.3, dynamic_energy_threshold=False,
                  calibration_duration=1.5, is_wake_word_response=False):
     """
     Record audio from the microphone and save it as an MP3 file.
-    
+
     This function now automatically uses Mac voice isolation when available.
-    
+
+    WARNING: This function should NOT be called when using wireless audio.
+    Use AudioSourceManager.record_audio() instead, which routes to the correct source.
+
     Args:
         file_path: Path to save the MP3 file
         timeout: Maximum time to wait for phrase to start
@@ -105,10 +108,25 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
     """
     # Make sure temp audio directory exists
     os.makedirs(Config.TEMP_AUDIO_DIR, exist_ok=True)
-    
+
+    # Check if we're using wireless audio - if so, this function shouldn't have been called
+    from .audio_source_manager import get_audio_manager, AudioSourceType
+    audio_manager = get_audio_manager()
+    if audio_manager and audio_manager.get_current_source() == AudioSourceType.WIRELESS:
+        logging.warning("audio.record_audio() called while in wireless mode - should use AudioSourceManager instead")
+        logging.warning("Attempting to use wireless recorder...")
+        if audio_manager._network_source:
+            return audio_manager._network_source.record_audio(
+                file_path=file_path,
+                max_duration=timeout,
+                is_wake_word_response=is_wake_word_response
+            )
+        else:
+            logging.error("Wireless source not available, falling back to local")
+
     # Check configuration and platform
     use_mac_isolation = (
-        Config.USE_MAC_VOICE_ISOLATION and 
+        Config.USE_MAC_VOICE_ISOLATION and
         CAN_USE_VOICE_ISOLATION
     )
     
