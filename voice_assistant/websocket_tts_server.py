@@ -423,7 +423,7 @@ class WebSocketTTSServer:
                 self.transmission_stats['per_device'][device_id]['failed'] += 1
             return False
     
-    def send_tts_audio_sync(self, device_id: str, audio_data: bytes, session_id: str = None, use_opus: bool = True, pre_encoded: bool = False):
+    def send_tts_audio_sync(self, device_id: str, audio_data: bytes, session_id: str = None, use_opus: bool = False, pre_encoded: bool = False):
         """Send TTS audio synchronously (thread-safe).
 
         Args:
