@@ -519,11 +519,14 @@ def main():
             apply_wake_word_filter = is_first_turn_after_wake.is_set()
             
             # Determine whether wireless audio is active
+            # If wireless mode is enabled, keep using it (don't fallback to local during recording)
             wireless_active = False
             if WIRELESS_MODE_ENABLED:
                 if audio_source_manager and audio_source_manager.get_current_source() != AudioSourceType.WIRELESS:
                     audio_source_manager.switch_to_wireless(audio_source_manager.target_room)
-                wireless_active = _is_wireless_audio_active()
+                # Once switched to wireless, stay on wireless for recording
+                # (Don't check has_recent_audio during wake word -> recording transition)
+                wireless_active = (audio_source_manager.get_current_source() == AudioSourceType.WIRELESS)
 
             if not wireless_active and audio_source_manager and audio_source_manager.get_current_source() != AudioSourceType.LOCAL:
                 audio_source_manager.switch_to_local()
