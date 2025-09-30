@@ -20,6 +20,7 @@ from .websocket_tts_server import start_websocket_tts_server, get_websocket_tts_
 from .text_to_speech import text_to_speech, get_next_chunk, get_chunk_generation_stats, generation_complete
 from .config import Config
 from .config import Config
+from .rtp_receiver import RTPReceiver
 
 class NetworkAudioSource:
     """
@@ -43,13 +44,21 @@ class NetworkAudioSource:
         self.chunk_size = 320  # Match ESP32-P4 20ms UDP frames to avoid zero-padding
         
         # Audio components
-        self.audio_server = WirelessAudioServer(
+        # UDP server disabled - using RTP only for reliable wireless audio streaming
+        # self.audio_server = WirelessAudioServer(
+        #     host="0.0.0.0",
+        #     port=8003,
+        #     sample_rate=self.sample_rate,
+        #     channels=self.channels
+        # )
+
+        # RTP receiver for μ-law compressed audio (port 5004)
+        self.rtp_receiver = RTPReceiver(
             host="0.0.0.0",
-            port=8003,
-            sample_rate=self.sample_rate,
-            channels=self.channels
+            port=5004,
+            audio_callback=self._on_rtp_audio_received
         )
-        
+
         self.device_manager = WirelessDeviceManager()
         
         # VAD and utterance detection
@@ -93,7 +102,8 @@ class NetworkAudioSource:
         self._energy_debug_counter = 0
         
         # Set up callbacks
-        self.audio_server.set_audio_callback(self._on_audio_received)
+        # UDP server disabled - callback not needed
+        # self.audio_server.set_audio_callback(self._on_audio_received)
         self.device_manager.set_callbacks(
             connected=self._on_device_connected,
             disconnected=self._on_device_disconnected,
@@ -110,10 +120,16 @@ class NetworkAudioSource:
         """Start the network audio source."""
         try:
             # Start wireless components
-            if not self.audio_server.start():
-                logging.error("Failed to start wireless audio server")
-                return False
-            
+            # UDP server disabled - using RTP only
+            # if not self.audio_server.start():
+            #     logging.error("Failed to start wireless audio server")
+            #     return False
+
+            # Start RTP receiver for compressed audio
+            logging.info("🎵 Starting RTP receiver on port 5004")
+            self.rtp_receiver.start()
+            logging.info("✅ RTP receiver started - ready for μ-law compressed audio")
+
             self.device_manager.start_monitoring()
             
             # Start WebSocket TTS server for ESP32-P4 audio playback
@@ -150,11 +166,13 @@ class NetworkAudioSource:
     def stop(self):
         """Stop the network audio source."""
         logging.info("Stopping NetworkAudioSource...")
-        
+
         self.is_recording = False
-        
+
         # Stop components
-        self.audio_server.stop()
+        # UDP server disabled
+        # self.audio_server.stop()
+        self.rtp_receiver.stop()
         self.device_manager.stop_monitoring()
         
         # Stop WebSocket TTS server
@@ -371,6 +389,40 @@ class NetworkAudioSource:
         self.active_device = active_devices[0]
         logging.info(f"Selected active device: {self._device_label(self.active_device)}")
     
+    def _on_rtp_audio_received(self, pcm_data: bytes):
+        """
+        Callback for receiving RTP audio (already decoded from μ-law to PCM).
+        This receives 16-bit PCM audio decoded by the RTP receiver.
+        """
+        try:
+            # Convert bytes to numpy int16 array
+            audio_int16 = np.frombuffer(pcm_data, dtype=np.int16)
+
+            # Add to audio buffer if recording
+            if self.is_recording:
+                now = time.time()
+                audio_entry = {
+                    'audio_data': audio_int16,
+                    'packet_info': None,  # RTP doesn't have VAD/wake word metadata
+                    'timestamp': now
+                }
+                self.audio_buffer.append(audio_entry)
+                self.stats['packets_received'] += 1
+
+                # Update last packet timestamp
+                self.last_packet_timestamp = now
+
+                # Track audio level for device status
+                audio_level = float(np.abs(audio_int16).mean()) / 32768.0 if audio_int16.size else 0.0
+                if self.active_device:
+                    self.device_manager.update_device_status(
+                        self.active_device.device_id,
+                        audio_level=audio_level,
+                        last_seen=now
+                    )
+        except Exception as e:
+            logging.error(f"Error processing RTP audio: {e}")
+
     def _on_audio_received(self, audio_data: np.ndarray, raw_packet_data: bytes = None, source_addr: tuple = None):
         """Callback for receiving audio data from wireless server with ESP32-P4 packet parsing."""
         if not self.active_device:
@@ -639,14 +691,15 @@ class NetworkAudioSource:
     
     def get_stats(self) -> dict:
         """Get network audio source statistics."""
-        server_stats = self.audio_server.get_stats()
+        # UDP server disabled - no server stats
+        # server_stats = self.audio_server.get_stats()
         device_stats = self.device_manager.get_stats()
         vad_stats = self.vad_coordinator.get_performance_metrics()
         protocol_stats = self.protocol_parser.get_stats()
-        
+
         return {
             'network_audio': self.stats,
-            'audio_server': server_stats,
+            # 'audio_server': server_stats,  # UDP server disabled
             'device_manager': device_stats,
             'vad_coordination': vad_stats._asdict(),
             'esp32p4_protocol': protocol_stats,
