@@ -26,6 +26,15 @@ class WebSocketTTSServer:
         # Connected devices
         self.devices: Dict[str, WebSocketServerProtocol] = {}
         self.device_sessions: Dict[str, Dict[str, Any]] = {}
+
+        # Transmission statistics
+        self.transmission_stats = {
+            'total_sessions': 0,
+            'total_chunks_sent': 0,
+            'total_bytes_sent': 0,
+            'failed_transmissions': 0,
+            'per_device': {}
+        }
         
         # Callbacks
         self.tts_request_callback: Optional[Callable[[str, str], None]] = None
@@ -63,18 +72,21 @@ class WebSocketTTSServer:
         """Stop the WebSocket TTS server."""
         if not self.running:
             return
-        
+
         logging.info("Stopping WebSocket TTS server...")
         self.running = False
-        
+
         # Stop the server
         if self.loop and self.server:
             asyncio.run_coroutine_threadsafe(self.server.close(), self.loop)
-        
+
         if self.server_thread and self.server_thread.is_alive():
             self.server_thread.join(timeout=2.0)
-        
+
         logging.info("WebSocket TTS server stopped")
+
+        # Print transmission statistics
+        self.print_transmission_stats()
     
     def _run_server(self):
         """Run the WebSocket server in its own thread."""
@@ -234,45 +246,177 @@ class WebSocketTTSServer:
         except Exception as e:
             logging.error(f"Error processing message from {device_id}: {e}")
     
-    async def send_tts_audio(self, device_id: str, audio_data: bytes, session_id: str = None):
-        """Send TTS audio to specific ESP32-P4 device."""
+    async def send_tts_audio(self, device_id: str, audio_data: bytes, session_id: str = None, use_opus: bool = True):
+        """Send TTS audio to specific ESP32-P4 device in chunks to avoid SDIO buffer overflow.
+
+        Args:
+            device_id: Target ESP32-P4 device ID
+            audio_data: PCM audio data (16-bit mono @ 16kHz)
+            session_id: Optional session ID for tracking
+            use_opus: If True, encode to Opus before sending (default, recommended for bandwidth)
+        """
         if device_id not in self.devices:
             logging.warning(f"Device {device_id} not connected - cannot send TTS audio")
+            self.transmission_stats['failed_transmissions'] += 1
             return False
-        
+
         try:
-            # Convert audio data to base64 for JSON transport
             import base64
-            audio_b64 = base64.b64encode(audio_data).decode('utf-8')
-            
-            tts_msg = {
-                'type': 'tts_audio',
-                'session_id': session_id or f"tts_{int(time.time())}",
-                'audio_format': 'pcm_16bit_mono_16khz',
-                'audio_data': audio_b64,
-                'timestamp': int(time.time() * 1000)
-            }
-            
-            await self.devices[device_id].send(json.dumps(tts_msg))
-            logging.info(f"🔊 Sent TTS audio to {device_id}: {len(audio_data)} bytes (session: {session_id})")
+
+            # Encode to Opus if requested (reduces size by ~10x)
+            if use_opus:
+                try:
+                    import opuslib
+
+                    # Opus encoder configuration
+                    SAMPLE_RATE = 16000
+                    CHANNELS = 1
+                    FRAME_SIZE = 320  # 20ms @ 16kHz
+                    BITRATE = 24000  # 24 kbps for speech
+
+                    # Create Opus encoder
+                    encoder = opuslib.Encoder(SAMPLE_RATE, CHANNELS, opuslib.APPLICATION_VOIP)
+                    encoder.bitrate = BITRATE
+
+                    # Encode PCM to Opus in frames
+                    opus_frames = []
+                    pcm_offset = 0
+                    original_size = len(audio_data)
+
+                    while pcm_offset < len(audio_data):
+                        # Extract one frame (320 samples × 2 bytes = 640 bytes)
+                        frame_end = min(pcm_offset + (FRAME_SIZE * 2), len(audio_data))
+                        pcm_frame = audio_data[pcm_offset:frame_end]
+
+                        # Pad last frame if needed
+                        if len(pcm_frame) < FRAME_SIZE * 2:
+                            pcm_frame += b'\x00' * (FRAME_SIZE * 2 - len(pcm_frame))
+
+                        # Encode frame
+                        opus_frame = encoder.encode(pcm_frame, FRAME_SIZE)
+                        opus_frames.append(opus_frame)
+                        pcm_offset = frame_end
+
+                    # Concatenate all Opus frames
+                    encoded_audio = b''.join(opus_frames)
+                    audio_format = 'opus_16khz_mono'
+
+                    logging.info(f"🗜️  Opus encoding: {original_size} bytes PCM → {len(encoded_audio)} bytes Opus ({len(encoded_audio)/original_size*100:.1f}% of original)")
+
+                except ImportError:
+                    logging.warning("opuslib not available, falling back to PCM")
+                    encoded_audio = audio_data
+                    audio_format = 'pcm_16bit_mono_16khz'
+                    use_opus = False
+                except Exception as e:
+                    logging.error(f"Opus encoding failed: {e}, falling back to PCM")
+                    encoded_audio = audio_data
+                    audio_format = 'pcm_16bit_mono_16khz'
+                    use_opus = False
+            else:
+                encoded_audio = audio_data
+                audio_format = 'pcm_16bit_mono_16khz'
+
+            # Chunk size depends on encoding
+            # Opus: ~100 bytes per 20ms frame, use 1KB chunks for ~10 frames
+            # PCM: 1KB = ~30ms of audio
+            CHUNK_SIZE = 1024 if not use_opus else 1024
+            total_bytes = len(encoded_audio)
+            num_chunks = (total_bytes + CHUNK_SIZE - 1) // CHUNK_SIZE
+            session = session_id or f"tts_{int(time.time())}"
+
+            # Initialize device stats if needed
+            if device_id not in self.transmission_stats['per_device']:
+                self.transmission_stats['per_device'][device_id] = {
+                    'sessions': 0,
+                    'chunks_sent': 0,
+                    'bytes_sent': 0,
+                    'failed': 0
+                }
+
+            # Track session start
+            self.transmission_stats['total_sessions'] += 1
+            self.transmission_stats['per_device'][device_id]['sessions'] += 1
+
+            logging.info(f"📤 Sending TTS audio to {device_id}: {total_bytes} bytes ({audio_format}) in {num_chunks} chunks")
+
+            # Send audio in chunks (matching ESP32's expected format)
+            for chunk_index in range(num_chunks):
+                start = chunk_index * CHUNK_SIZE
+                end = min(start + CHUNK_SIZE, total_bytes)
+                chunk_data = encoded_audio[start:end]  # Use encoded_audio (Opus or PCM)
+                chunk_b64 = base64.b64encode(chunk_data).decode('utf-8')
+
+                # Calculate duration based on format
+                if use_opus:
+                    # Opus: approximate duration based on bitrate
+                    # At 24 kbps: ~3 KB/sec, so 1 KB ≈ 333ms
+                    chunk_duration_ms = int((len(chunk_data) / 3000) * 1000)
+                else:
+                    # PCM: samples = bytes / 2 (16-bit), duration = samples / sample_rate
+                    chunk_duration_ms = int((len(chunk_data) / 2) / 16000 * 1000)
+
+                tts_msg = {
+                    'type': 'tts_audio_chunk',
+                    'chunk_info': {
+                        'session_id': session,
+                        'chunk_sequence': chunk_index,  # ESP32 uses chunk_sequence not chunk_index
+                        'chunk_size': len(chunk_data),
+                        'is_final': (chunk_index == num_chunks - 1),
+                        'audio_data': chunk_b64  # ESP32 expects audio_data INSIDE chunk_info
+                    },
+                    'timing': {
+                        'chunk_start_time_ms': chunk_index * chunk_duration_ms,
+                        'chunk_duration_ms': chunk_duration_ms
+                    },
+                    'audio_format': audio_format  # 'opus_16khz_mono' or 'pcm_16bit_mono_16khz'
+                }
+
+                await self.devices[device_id].send(json.dumps(tts_msg))
+
+                # Track successful chunk transmission
+                self.transmission_stats['total_chunks_sent'] += 1
+                self.transmission_stats['total_bytes_sent'] += len(chunk_data)
+                self.transmission_stats['per_device'][device_id]['chunks_sent'] += 1
+                self.transmission_stats['per_device'][device_id]['bytes_sent'] += len(chunk_data)
+
+                # Delay between chunks to avoid overwhelming SDIO buffers during bidirectional traffic
+                # 20ms allows time for both TTS RX and RTP TX without buffer contention
+                if chunk_index < num_chunks - 1:
+                    await asyncio.sleep(0.02)  # 20ms between chunks
+
+            logging.info(f"🔊 Sent TTS audio to {device_id}: {total_bytes} bytes in {num_chunks} chunks (session: {session})")
             return True
-            
+
         except Exception as e:
             logging.error(f"Failed to send TTS audio to {device_id}: {e}")
+            self.transmission_stats['failed_transmissions'] += 1
+            if device_id in self.transmission_stats['per_device']:
+                self.transmission_stats['per_device'][device_id]['failed'] += 1
             return False
     
-    def send_tts_audio_sync(self, device_id: str, audio_data: bytes, session_id: str = None):
-        """Send TTS audio synchronously (thread-safe)."""
+    def send_tts_audio_sync(self, device_id: str, audio_data: bytes, session_id: str = None, use_opus: bool = True):
+        """Send TTS audio synchronously (thread-safe).
+
+        Args:
+            device_id: Target ESP32-P4 device ID
+            audio_data: PCM audio data (16-bit mono @ 16kHz)
+            session_id: Optional session ID for tracking
+            use_opus: If True, encode to Opus before sending (default)
+        """
         if not self.loop or not self.running:
             return False
-        
+
         future = asyncio.run_coroutine_threadsafe(
-            self.send_tts_audio(device_id, audio_data, session_id),
+            self.send_tts_audio(device_id, audio_data, session_id, use_opus),
             self.loop
         )
-        
+
         try:
-            return future.result(timeout=5.0)
+            # Timeout must accommodate: num_chunks × 20ms delay + network overhead
+            # With Opus: ~35 chunks (was 343), so ~1s minimum, use 30s for safety
+            # With PCM: ~343 chunks, ~8s minimum, use 30s for safety
+            return future.result(timeout=30.0)
         except Exception as e:
             logging.error(f"Failed to send TTS audio sync to {device_id}: {e}")
             return False
@@ -298,29 +442,64 @@ class WebSocketTTSServer:
         """Broadcast message to all connected ESP32-P4 devices."""
         if not self.loop or not self.running:
             return
-        
+
         async def _broadcast():
             if not self.devices:
                 return
-            
+
             msg_json = json.dumps(message)
             disconnected = []
-            
+
             for device_id, websocket in self.devices.items():
                 try:
                     await websocket.send(msg_json)
                 except Exception as e:
                     logging.warning(f"Failed to broadcast to {device_id}: {e}")
                     disconnected.append(device_id)
-            
+
             # Cleanup disconnected devices
             for device_id in disconnected:
                 if device_id in self.devices:
                     del self.devices[device_id]
                 if device_id in self.device_sessions:
                     del self.device_sessions[device_id]
-        
+
         asyncio.run_coroutine_threadsafe(_broadcast(), self.loop)
+
+    def get_transmission_stats(self) -> Dict[str, Any]:
+        """Get TTS transmission statistics."""
+        return self.transmission_stats.copy()
+
+    def print_transmission_stats(self):
+        """Print TTS transmission statistics."""
+        stats = self.transmission_stats
+        logging.info("=" * 60)
+        logging.info("TTS Transmission Statistics:")
+        logging.info(f"  Total sessions: {stats['total_sessions']}")
+        logging.info(f"  Total chunks sent: {stats['total_chunks_sent']}")
+        logging.info(f"  Total bytes sent: {stats['total_bytes_sent']:,} ({stats['total_bytes_sent'] / 1024:.1f} KB)")
+        logging.info(f"  Failed transmissions: {stats['failed_transmissions']}")
+
+        if stats['per_device']:
+            logging.info("\n  Per-Device Statistics:")
+            for device_id, device_stats in stats['per_device'].items():
+                logging.info(f"    {device_id}:")
+                logging.info(f"      Sessions: {device_stats['sessions']}")
+                logging.info(f"      Chunks sent: {device_stats['chunks_sent']}")
+                logging.info(f"      Bytes sent: {device_stats['bytes_sent']:,} ({device_stats['bytes_sent'] / 1024:.1f} KB)")
+                logging.info(f"      Failed: {device_stats['failed']}")
+        logging.info("=" * 60)
+
+    def reset_transmission_stats(self):
+        """Reset transmission statistics."""
+        self.transmission_stats = {
+            'total_sessions': 0,
+            'total_chunks_sent': 0,
+            'total_bytes_sent': 0,
+            'failed_transmissions': 0,
+            'per_device': {}
+        }
+        logging.info("Transmission statistics reset")
 
 
 # Global WebSocket TTS server instance

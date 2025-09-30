@@ -734,15 +734,15 @@ def main():
                         first_chunk_start = time.time()
                         logging.info(f"Starting playback of first chunk after {playback_delay:.3f}s stabilization")
                         
-                        wireless_active = WIRELESS_MODE_ENABLED and _is_wireless_audio_active()
-
-                        # Play audio locally only when not actively using the wireless path
-                        if not wireless_active:
-                            logging.info("🎧 Wireless speaker unavailable – playing TTS locally")
+                        # In wireless mode, NEVER play audio locally - only send to ESP32-P4
+                        if not WIRELESS_MODE_ENABLED:
+                            logging.info("🎧 Playing TTS locally")
                             play_audio(first_chunk_file)
+                        else:
+                            logging.debug("🔇 Wireless mode - skipping local TTS playback")
 
                         # Send to ESP32-P4 devices if using wireless audio
-                        if wireless_active and hasattr(audio_source_manager, '_network_source'):
+                        if WIRELESS_MODE_ENABLED and hasattr(audio_source_manager, '_network_source'):
                             try:
                                 success = audio_source_manager._network_source.send_tts_audio_to_devices(
                                     first_chunk_file, 
@@ -762,9 +762,8 @@ def main():
                         chunk_index = 1
                         last_chunk_time = time.time()
                         total_gaps = []
-                        
+
                         while True:
-                            wireless_active = WIRELESS_MODE_ENABLED and _is_wireless_audio_active()
                             # Get comprehensive generation stats for debugging
                             stats = get_chunk_generation_stats()
                             
@@ -795,14 +794,14 @@ def main():
                                 
                                 chunk_play_start = time.time()
                                 logging.info(f"Playing chunk {chunk_index+1} (gap: {inter_chunk_time:.3f}s, queue_size: {stats['queue_size']})")
-                                
-                                # Play audio locally only when not using wireless output
-                                if not wireless_active:
+
+                                # In wireless mode, NEVER play audio locally - only send to ESP32-P4
+                                if not WIRELESS_MODE_ENABLED:
                                     logging.debug("🎧 Playing follow-up TTS chunk locally")
                                     play_audio(next_chunk)
 
                                 # Send to ESP32-P4 devices if using wireless audio
-                                if wireless_active and hasattr(audio_source_manager, '_network_source'):
+                                if WIRELESS_MODE_ENABLED and hasattr(audio_source_manager, '_network_source'):
                                     try:
                                         audio_source_manager._network_source.send_tts_audio_to_devices(
                                             next_chunk, 

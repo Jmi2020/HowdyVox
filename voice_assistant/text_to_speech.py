@@ -59,32 +59,102 @@ generation_complete = threading.Event()
 def clean_text_for_tts(text):
     """
     Clean text before sending to TTS by removing formatting characters like asterisks.
-    
+
     Args:
         text (str): The input text to clean
-        
+
     Returns:
         str: The cleaned text suitable for TTS
     """
     # Remove markdown emphasis patterns (both *word* and **word**)
     cleaned_text = re.sub(r'\*+([^*]+)\*+', r'\1', text)
-    
+
     # Also handle standalone asterisks that might remain
     cleaned_text = cleaned_text.replace('*', '')
-    
+
     # Remove other potential markdown formatting
     cleaned_text = cleaned_text.replace('_', '')  # Remove underscores used for emphasis
     cleaned_text = cleaned_text.replace('`', '')  # Remove backticks used for code
-    
+
     # Clean up any potential double spaces created by removing characters
     cleaned_text = ' '.join(cleaned_text.split())
-    
+
     # Log original vs cleaned text if there was a change
     if cleaned_text != text:
         logging.info(f"Cleaned text for TTS - Removed formatting characters")
         logging.debug(f"Original: '{text}' -> Cleaned: '{cleaned_text}'")
-    
+
     return cleaned_text
+
+
+def encode_pcm_to_opus(samples, sample_rate, output_file):
+    """
+    Encode PCM audio samples to Opus format and save to file.
+
+    Args:
+        samples: NumPy array of PCM samples (float32, -1.0 to 1.0)
+        sample_rate: Sample rate (should be 16000 for Kokoro)
+        output_file: Path to save .opus file
+
+    Returns:
+        bool: True if successful, False if Opus encoding failed
+    """
+    try:
+        import opuslib
+        import numpy as np
+
+        # Opus encoder configuration
+        CHANNELS = 1
+        FRAME_SIZE = 320  # 20ms @ 16kHz
+        BITRATE = 24000  # 24 kbps for speech
+
+        # Create Opus encoder
+        encoder = opuslib.Encoder(sample_rate, CHANNELS, opuslib.APPLICATION_VOIP)
+        encoder.bitrate = BITRATE
+
+        # Convert float samples to 16-bit PCM bytes
+        pcm_int16 = (samples * 32767).astype(np.int16)
+        pcm_bytes = pcm_int16.tobytes()
+
+        # Encode to Opus frames
+        opus_frames = []
+        offset = 0
+        frame_size_bytes = FRAME_SIZE * 2  # 2 bytes per 16-bit sample
+
+        while offset < len(pcm_bytes):
+            # Extract one frame
+            frame_end = min(offset + frame_size_bytes, len(pcm_bytes))
+            pcm_frame = pcm_bytes[offset:frame_end]
+
+            # Pad last frame if needed
+            if len(pcm_frame) < frame_size_bytes:
+                pcm_frame += b'\x00' * (frame_size_bytes - len(pcm_frame))
+
+            # Encode frame
+            opus_frame = encoder.encode(pcm_frame, FRAME_SIZE)
+            opus_frames.append(opus_frame)
+            offset = frame_end
+
+        # Write Opus frames to file
+        with open(output_file, 'wb') as f:
+            for frame in opus_frames:
+                # Write frame length as 2-byte header (for easier decoding later)
+                f.write(len(frame).to_bytes(2, 'little'))
+                f.write(frame)
+
+        original_size = len(pcm_bytes)
+        opus_size = sum(len(frame) for frame in opus_frames)
+        compression_ratio = opus_size / original_size * 100
+
+        logging.debug(f"Encoded Opus: {original_size} bytes PCM → {opus_size} bytes Opus ({compression_ratio:.1f}%)")
+        return True
+
+    except ImportError:
+        logging.debug("opuslib not available, skipping Opus encoding")
+        return False
+    except Exception as e:
+        logging.warning(f"Failed to encode Opus: {e}")
+        return False
 
 
 def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, local_model_path:str=None):
@@ -163,17 +233,22 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                 
                 # Generate audio for first chunk
                 samples, sample_rate = kokoro.create(
-                    first_chunk, 
-                    voice=voice_model, 
+                    first_chunk,
+                    voice=voice_model,
                     speed=Config.KOKORO_SPEED,  # Use config value instead of hardcoded 1.0
                     lang="en-us"
                 )
-                
-                # Save the audio file
+
+                # Save the audio file as WAV
                 sf.write(first_chunk_file, samples, sample_rate)
-                
+
+                # Also save as Opus for efficient wireless transmission
+                first_chunk_opus = first_chunk_file.replace('.wav', '.opus')
+                opus_encoded = encode_pcm_to_opus(samples, sample_rate, first_chunk_opus)
+
                 first_chunk_time = time.time() - first_chunk_start
-                logging.info(f"Generated chunk 1/{len(chunks)}: {first_chunk_file} (took {first_chunk_time:.3f}s)")
+                format_info = " + Opus" if opus_encoded else ""
+                logging.info(f"Generated chunk 1/{len(chunks)}: {first_chunk_file}{format_info} (took {first_chunk_time:.3f}s)")
                 
                 # Enhanced background thread with adaptive pre-buffering
                 def generate_remaining_chunks():
@@ -202,20 +277,25 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                                 
                                 # Generate audio for this chunk
                                 samples, sample_rate = kokoro.create(
-                                    chunk, 
-                                    voice=voice_model, 
+                                    chunk,
+                                    voice=voice_model,
                                     speed=Config.KOKORO_SPEED,
                                     lang="en-us"
                                 )
-                                
-                                # Save the audio file
+
+                                # Save the audio file as WAV
                                 sf.write(chunk_file, samples, sample_rate)
-                                
+
+                                # Also save as Opus for efficient wireless transmission
+                                chunk_opus = chunk_file.replace('.wav', '.opus')
+                                opus_encoded = encode_pcm_to_opus(samples, sample_rate, chunk_opus)
+
                                 chunk_generation_time = time.time() - chunk_start_time
-                                
+
                                 # Add this chunk to the queue
                                 chunk_queue.put(chunk_file)
-                                logging.info(f"Generated chunk {i+1}/{len(chunks)}: {chunk_file} (took {chunk_generation_time:.3f}s)")
+                                format_info = " + Opus" if opus_encoded else ""
+                                logging.info(f"Generated chunk {i+1}/{len(chunks)}: {chunk_file}{format_info} (took {chunk_generation_time:.3f}s)")
                                 
                             except Exception as e:
                                 logging.error(f"Error generating chunk {i+1}: {str(e)}")
