@@ -340,6 +340,19 @@ class WebSocketTTSServer:
 
             logging.info(f"📤 Sending TTS audio to {device_id}: {total_bytes} bytes ({audio_format}) in {num_chunks} chunks")
 
+            # Send session start message first
+            session_start_msg = {
+                'type': 'tts_audio_start',
+                'session_info': {
+                    'session_id': session,
+                    'estimated_duration_ms': int((total_bytes / 2) / 16000 * 1000) if not use_opus else 0,
+                    'total_chunks_expected': num_chunks,
+                    'audio_format': audio_format
+                }
+            }
+            await self.devices[device_id].send(json.dumps(session_start_msg))
+            logging.info(f"🎬 Sent TTS session start: {session}")
+
             # Send audio in chunks (matching ESP32's expected format)
             for chunk_index in range(num_chunks):
                 start = chunk_index * CHUNK_SIZE
@@ -380,12 +393,27 @@ class WebSocketTTSServer:
                 self.transmission_stats['per_device'][device_id]['chunks_sent'] += 1
                 self.transmission_stats['per_device'][device_id]['bytes_sent'] += len(chunk_data)
 
-                # Delay between chunks to avoid overwhelming SDIO buffers during bidirectional traffic
-                # 20ms allows time for both TTS RX and RTP TX without buffer contention
+                # Delay between chunks to avoid overwhelming ESP32 TTS queue (max ~10 chunks)
+                # 50ms allows ESP32 to drain queue while receiving new chunks
                 if chunk_index < num_chunks - 1:
-                    await asyncio.sleep(0.02)  # 20ms between chunks
+                    await asyncio.sleep(0.05)  # 50ms between chunks
+
+            # Send session end message
+            session_end_msg = {
+                'type': 'tts_audio_end',
+                'session_summary': {
+                    'session_id': session,
+                    'total_chunks_sent': num_chunks,
+                    'total_audio_bytes': total_bytes,
+                    'actual_duration_ms': int((total_bytes / 2) / 16000 * 1000) if not use_opus else 0,
+                    'transmission_time_ms': int((num_chunks * 20)),  # Approximate based on 20ms delays
+                    'return_to_listening': True
+                }
+            }
+            await self.devices[device_id].send(json.dumps(session_end_msg))
 
             logging.info(f"🔊 Sent TTS audio to {device_id}: {total_bytes} bytes in {num_chunks} chunks (session: {session})")
+            logging.info(f"🏁 Sent TTS session end: {session}")
             return True
 
         except Exception as e:
@@ -395,17 +423,25 @@ class WebSocketTTSServer:
                 self.transmission_stats['per_device'][device_id]['failed'] += 1
             return False
     
-    def send_tts_audio_sync(self, device_id: str, audio_data: bytes, session_id: str = None, use_opus: bool = True):
+    def send_tts_audio_sync(self, device_id: str, audio_data: bytes, session_id: str = None, use_opus: bool = True, pre_encoded: bool = False):
         """Send TTS audio synchronously (thread-safe).
 
         Args:
             device_id: Target ESP32-P4 device ID
-            audio_data: PCM audio data (16-bit mono @ 16kHz)
+            audio_data: PCM audio data (16-bit mono @ 16kHz) OR pre-encoded Opus if pre_encoded=True
             session_id: Optional session ID for tracking
-            use_opus: If True, encode to Opus before sending (default)
+            use_opus: If True and pre_encoded=False, encode PCM to Opus (default)
+            pre_encoded: If True, audio_data is already Opus-encoded (skips encoding)
         """
         if not self.loop or not self.running:
             return False
+
+        # Handle pre-encoded Opus: skip encoding, set format correctly
+        if pre_encoded:
+            use_opus = False  # Don't encode again
+            # TODO: Need to modify send_tts_audio to accept audio_format parameter
+            # For now, log a warning
+            logging.warning("Pre-encoded Opus support incomplete - audio may not play correctly")
 
         future = asyncio.run_coroutine_threadsafe(
             self.send_tts_audio(device_id, audio_data, session_id, use_opus),
