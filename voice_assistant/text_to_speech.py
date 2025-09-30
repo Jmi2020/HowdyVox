@@ -104,8 +104,15 @@ def encode_pcm_to_opus(samples, sample_rate, output_file):
 
         # Opus encoder configuration
         CHANNELS = 1
-        FRAME_SIZE = 320  # 20ms @ 16kHz
         BITRATE = 24000  # 24 kbps for speech
+
+        # Calculate frame size based on actual sample rate (20ms worth of samples)
+        FRAME_SIZE = int(sample_rate * 0.02)  # 20ms frame: 320 @ 16kHz, 480 @ 24kHz
+
+        # Validate sample rate (Opus supports 8k, 12k, 16k, 24k, 48k)
+        valid_rates = [8000, 12000, 16000, 24000, 48000]
+        if sample_rate not in valid_rates:
+            logging.warning(f"Sample rate {sample_rate} not optimal for Opus, closest supported rates: {valid_rates}")
 
         # Create Opus encoder
         encoder = opuslib.Encoder(sample_rate, CHANNELS, opuslib.APPLICATION_VOIP)
@@ -152,7 +159,10 @@ def encode_pcm_to_opus(samples, sample_rate, output_file):
         logging.debug("opuslib not available, skipping Opus encoding")
         return False
     except Exception as e:
-        logging.warning(f"Failed to encode Opus: {e}")
+        logging.error(f"Failed to encode Opus: {e}")
+        logging.error(f"  Sample rate: {sample_rate}, Channels: {CHANNELS}, Frame size: {FRAME_SIZE}")
+        logging.error(f"  PCM data: {len(pcm_bytes) if 'pcm_bytes' in locals() else 'N/A'} bytes")
+        logging.error(f"  Sample data type: {type(samples)}, shape: {samples.shape if hasattr(samples, 'shape') else 'N/A'}")
         return False
 
 
