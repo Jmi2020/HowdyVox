@@ -200,12 +200,12 @@ class WakeWordDetector:
         
         # Set up wireless audio callback
         if hasattr(self.audio_source_manager, '_network_source') and self.audio_source_manager._network_source:
-            # Get the wireless audio server
-            audio_server = self.audio_source_manager._network_source.audio_server
-            
-            # Register for wireless audio packets
-            original_callback = audio_server.audio_callback if hasattr(audio_server, 'audio_callback') else None
-            
+            # Get the network audio source (works with RTP or UDP)
+            network_source = self.audio_source_manager._network_source
+
+            # Save original callback if one exists
+            original_callback = network_source.audio_callback if hasattr(network_source, 'audio_callback') else None
+
             def wireless_audio_callback(audio_data, raw_packet_data=None, source_addr=None):
                 # Call original callback first if it exists
                 if original_callback:
@@ -272,8 +272,8 @@ class WakeWordDetector:
                 except Exception as e:
                     logging.error(f"Error in wireless audio callback: {e}")
 
-            # Set our callback
-            audio_server.set_audio_callback(wireless_audio_callback)
+            # Set our callback (works with both RTP and UDP)
+            network_source.set_audio_callback(wireless_audio_callback)
         
         # Main wireless detection loop
         while not self.stop_event.is_set():

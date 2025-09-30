@@ -100,7 +100,10 @@ class NetworkAudioSource:
         self._logged_parse_failure = False
         self._vad_residual = np.array([], dtype=np.int16)
         self._energy_debug_counter = 0
-        
+
+        # Generic audio callback for RTP audio (for wake word detector, etc.)
+        self.audio_callback = None
+
         # Set up callbacks
         # UDP server disabled - callback not needed
         # self.audio_server.set_audio_callback(self._on_audio_received)
@@ -109,13 +112,21 @@ class NetworkAudioSource:
             disconnected=self._on_device_disconnected,
             status_update=self._on_device_status
         )
-        
+
         logging.info(f"NetworkAudioSource initialized for room: {target_room or 'auto'}")
     
     @staticmethod
     def _device_label(device: WirelessDevice) -> str:
         return getattr(device, "display_name", "") or device.device_id
-    
+
+    def set_audio_callback(self, callback: Callable):
+        """
+        Set audio callback for RTP audio (replaces UDP audio_server.set_audio_callback).
+        Callback signature: callback(audio_data: np.ndarray, raw_packet_data: bytes = None, source_addr: tuple = None)
+        """
+        self.audio_callback = callback
+        logging.info("Audio callback registered for RTP stream")
+
     def start(self) -> bool:
         """Start the network audio source."""
         try:
@@ -398,9 +409,20 @@ class NetworkAudioSource:
             # Convert bytes to numpy int16 array
             audio_int16 = np.frombuffer(pcm_data, dtype=np.int16)
 
+            # Track connectivity
+            now = time.time()
+            self.last_packet_timestamp = now
+
+            # Call registered audio callback (e.g., wake word detector)
+            if self.audio_callback:
+                try:
+                    # RTP doesn't provide raw packet data or source addr, pass None
+                    self.audio_callback(audio_int16, raw_packet_data=None, source_addr=None)
+                except Exception as cb_error:
+                    logging.error(f"Error in audio callback: {cb_error}")
+
             # Add to audio buffer if recording
             if self.is_recording:
-                now = time.time()
                 audio_entry = {
                     'audio_data': audio_int16,
                     'packet_info': None,  # RTP doesn't have VAD/wake word metadata
@@ -409,17 +431,14 @@ class NetworkAudioSource:
                 self.audio_buffer.append(audio_entry)
                 self.stats['packets_received'] += 1
 
-                # Update last packet timestamp
-                self.last_packet_timestamp = now
-
-                # Track audio level for device status
-                audio_level = float(np.abs(audio_int16).mean()) / 32768.0 if audio_int16.size else 0.0
-                if self.active_device:
-                    self.device_manager.update_device_status(
-                        self.active_device.device_id,
-                        audio_level=audio_level,
-                        last_seen=now
-                    )
+            # Track audio level for device status
+            audio_level = float(np.abs(audio_int16).mean()) / 32768.0 if audio_int16.size else 0.0
+            if self.active_device:
+                self.device_manager.update_device_status(
+                    self.active_device.device_id,
+                    audio_level=audio_level,
+                    last_seen=now
+                )
         except Exception as e:
             logging.error(f"Error processing RTP audio: {e}")
 
