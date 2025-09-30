@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import logging
+import os
 import threading
 import time
 import wave
@@ -210,61 +211,39 @@ class NetworkAudioSource:
             return False
 
         try:
-            # Check if pre-encoded Opus file exists (preferred - 10x smaller than WAV)
-            opus_file_path = audio_file_path.replace('.wav', '.opus')
-            audio_data = None
-            is_pre_encoded_opus = False
+            # Load pre-encoded Opus file (TTS now generates Opus directly)
+            if not os.path.exists(audio_file_path):
+                logging.error(f"Audio file not found: {audio_file_path}")
+                return False
 
-            if os.path.exists(opus_file_path):
-                # Load pre-encoded Opus file (already compressed by TTS generator)
-                try:
-                    with open(opus_file_path, 'rb') as f:
-                        # Read raw Opus frames with 2-byte length headers
-                        opus_bytes = f.read()
+            with open(audio_file_path, 'rb') as f:
+                opus_bytes = f.read()
 
-                    # Extract just the Opus frames (strip length headers)
-                    audio_data = b''
-                    offset = 0
-                    while offset < len(opus_bytes):
-                        if offset + 2 > len(opus_bytes):
-                            break
-                        frame_len = int.from_bytes(opus_bytes[offset:offset+2], 'little')
-                        offset += 2
-                        if offset + frame_len > len(opus_bytes):
-                            break
-                        audio_data += opus_bytes[offset:offset+frame_len]
-                        offset += frame_len
-
-                    is_pre_encoded_opus = True
-                    logging.info(f"📦 Using pre-encoded Opus: {len(audio_data)} bytes ({opus_file_path})")
-                except Exception as e:
-                    logging.warning(f"Failed to load Opus file, falling back to WAV: {e}")
-                    audio_data = None
-
-            # Fall back to WAV if Opus not available
-            if audio_data is None:
-                import wave
-                with wave.open(audio_file_path, 'rb') as wav_file:
-                    # Ensure correct format for ESP32-P4: 16kHz, mono, 16-bit PCM
-                    if wav_file.getsampwidth() != 2 or wav_file.getnchannels() != 1 or wav_file.getframerate() != 16000:
-                        logging.warning(f"Audio file format mismatch - converting: {audio_file_path}")
-                        audio_data = self._convert_audio_format(audio_file_path)
-                    else:
-                        # Audio is already in correct format
-                        audio_data = wav_file.readframes(wav_file.getnframes())
-                logging.info(f"📦 Loaded PCM WAV: {len(audio_data)} bytes (will encode to Opus in real-time)")
+            # Extract Opus frames (strip 2-byte length headers)
+            audio_data = b''
+            offset = 0
+            while offset < len(opus_bytes):
+                if offset + 2 > len(opus_bytes):
+                    break
+                frame_len = int.from_bytes(opus_bytes[offset:offset+2], 'little')
+                offset += 2
+                if offset + frame_len > len(opus_bytes):
+                    break
+                audio_data += opus_bytes[offset:offset+frame_len]
+                offset += frame_len
 
             if not audio_data:
-                logging.error(f"No audio data loaded from {audio_file_path}")
+                logging.error(f"No audio data extracted from {audio_file_path}")
                 return False
+
+            logging.info(f"📦 Loaded pre-encoded Opus: {len(audio_data)} bytes ({audio_file_path})")
 
             success_count = 0
             for device_id in devices:
-                # use_opus parameter: False=audio_data is already Opus, True=audio_data is PCM (needs encoding)
-                if tts_server.send_tts_audio_sync(device_id, audio_data, use_opus=not is_pre_encoded_opus):
+                # Send pre-encoded Opus directly (no re-encoding needed)
+                if tts_server.send_tts_audio_sync(device_id, audio_data, use_opus=True):
                     success_count += 1
-                    format_str = "pre-encoded Opus" if is_pre_encoded_opus else "PCM→Opus real-time"
-                    logging.info(f"🔊 Sent TTS to {device_id} [{format_str}]: '{text[:30]}{'...' if len(text) > 30 else ''}'")
+                    logging.info(f"🔊 Sent TTS to {device_id} [Opus]: '{text[:30]}{'...' if len(text) > 30 else ''}'")
                 else:
                     logging.error(f"Failed to send TTS audio to {device_id}")
             
@@ -274,43 +253,7 @@ class NetworkAudioSource:
         except Exception as e:
             logging.error(f"Error sending TTS audio to ESP32-P4 devices: {e}")
             return False
-    
-    def _convert_audio_format(self, audio_file_path: str) -> bytes:
-        """Convert audio file to ESP32-P4 format (16kHz, mono, 16-bit PCM)."""
-        try:
-            with wave.open(audio_file_path, 'rb') as wav_file:
-                sample_rate = wav_file.getframerate()
-                channels = wav_file.getnchannels()
-                sample_width = wav_file.getsampwidth()
-                audio_data = wav_file.readframes(wav_file.getnframes())
 
-            if not audio_data:
-                return b''
-
-            # Convert sample width to 16-bit if needed
-            if sample_width != 2:
-                audio_data = audioop.lin2lin(audio_data, sample_width, 2)
-
-            # Convert to mono if stereo (two channels)
-            if channels == 2:
-                audio_data = audioop.tomono(audio_data, 2, 0.5, 0.5)
-            elif channels > 2:
-                logging.warning(f"Unsupported channel count ({channels}) for {audio_file_path}; averaging to mono")
-                # Average additional channels by converting to numpy
-                np_data = np.frombuffer(audio_data, dtype=np.int16).reshape(-1, channels)
-                mono = np.mean(np_data, axis=1).astype(np.int16)
-                audio_data = mono.tobytes()
-
-            # Resample to 16kHz if necessary
-            if sample_rate != 16000:
-                audio_data, _ = audioop.ratecv(audio_data, 2, 1, sample_rate, 16000, None)
-
-            return audio_data
-
-        except Exception as e:
-            logging.error(f"Audio format conversion failed: {e}")
-            return b''
-    
     def record_audio(self, 
                     file_path: str,
                     max_duration: float = 30.0,
