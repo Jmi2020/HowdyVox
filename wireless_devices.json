@@ -76,14 +76,14 @@
       "ip_address": "192.168.86.52",
       "port": 8003,
       "room": "Unknown",
-      "last_seen": 1759214123.213542,
+      "last_seen": 1759215678.721975,
       "is_active": true,
-      "audio_level": 0.001788330078125,
+      "audio_level": 0.001797146267361111,
       "battery_level": -1,
       "signal_strength": -1,
       "status": "disconnected",
       "display_name": "ESP32P4_192_168_86_52"
     }
   ],
-  "last_updated": 1759214126.579457
+  "last_updated": 1759215703.842613
 }
