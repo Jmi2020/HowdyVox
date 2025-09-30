@@ -1,6 +1,7 @@
 # voice_assistant/text_to_speech.py
 import logging
 import os
+import soundfile as sf
 import warnings
 import nltk
 import re
@@ -234,12 +235,12 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
             
             # Generate ONLY the first chunk in the main thread with timing
             first_chunk = chunks[0]
-            first_chunk_file = f"{file_base}_chunk_0.opus"  # Generate Opus directly, skip WAV
-
+            first_chunk_file = f"{file_base}_chunk_0{output_format}"
+            
             try:
                 # Track timing for first chunk generation
                 first_chunk_start = time.time()
-
+                
                 # Generate audio for first chunk
                 samples, sample_rate = kokoro.create(
                     first_chunk,
@@ -248,16 +249,16 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                     lang="en-us"
                 )
 
-                # Encode directly to Opus (skip WAV generation)
-                opus_encoded = encode_pcm_to_opus(samples, sample_rate, first_chunk_file)
+                # Save the audio file as WAV
+                sf.write(first_chunk_file, samples, sample_rate)
 
-                if not opus_encoded:
-                    logging.error("Failed to encode Opus for first chunk - opuslib may not be installed")
-                    generation_complete.set()
-                    return False, None
+                # Also save as Opus for efficient wireless transmission
+                first_chunk_opus = first_chunk_file.replace('.wav', '.opus')
+                opus_encoded = encode_pcm_to_opus(samples, sample_rate, first_chunk_opus)
 
                 first_chunk_time = time.time() - first_chunk_start
-                logging.info(f"Generated chunk 1/{len(chunks)}: {first_chunk_file} (took {first_chunk_time:.3f}s)")
+                format_info = " + Opus" if opus_encoded else ""
+                logging.info(f"Generated chunk 1/{len(chunks)}: {first_chunk_file}{format_info} (took {first_chunk_time:.3f}s)")
                 
                 # Enhanced background thread with adaptive pre-buffering
                 def generate_remaining_chunks():
@@ -274,16 +275,16 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                         for i, chunk in enumerate(chunks[1:], start=1):
                             if not chunk.strip():
                                 continue
-
-                            chunk_file = f"{file_base}_chunk_{i}.opus"  # Generate Opus directly, skip WAV
-
+                                
+                            chunk_file = f"{file_base}_chunk_{i}{output_format}"
+                            
                             try:
                                 chunk_start_time = time.time()
-
+                                
                                 # Apply inter-chunk stabilization delay for better audio quality
                                 if i > 1 and inter_chunk_stabilization > 0:
                                     time.sleep(inter_chunk_stabilization)
-
+                                
                                 # Generate audio for this chunk
                                 samples, sample_rate = kokoro.create(
                                     chunk,
@@ -292,18 +293,19 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                                     lang="en-us"
                                 )
 
-                                # Encode directly to Opus (skip WAV generation)
-                                opus_encoded = encode_pcm_to_opus(samples, sample_rate, chunk_file)
+                                # Save the audio file as WAV
+                                sf.write(chunk_file, samples, sample_rate)
 
-                                if not opus_encoded:
-                                    logging.error(f"Failed to encode Opus for chunk {i+1} - skipping")
-                                    continue
+                                # Also save as Opus for efficient wireless transmission
+                                chunk_opus = chunk_file.replace('.wav', '.opus')
+                                opus_encoded = encode_pcm_to_opus(samples, sample_rate, chunk_opus)
 
                                 chunk_generation_time = time.time() - chunk_start_time
 
                                 # Add this chunk to the queue
                                 chunk_queue.put(chunk_file)
-                                logging.info(f"Generated chunk {i+1}/{len(chunks)}: {chunk_file} (took {chunk_generation_time:.3f}s)")
+                                format_info = " + Opus" if opus_encoded else ""
+                                logging.info(f"Generated chunk {i+1}/{len(chunks)}: {chunk_file}{format_info} (took {chunk_generation_time:.3f}s)")
                                 
                             except Exception as e:
                                 logging.error(f"Error generating chunk {i+1}: {str(e)}")
