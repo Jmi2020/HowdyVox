@@ -297,11 +297,16 @@ class WebSocketTTSServer:
                         opus_frames.append(opus_frame)
                         pcm_offset = frame_end
 
-                    # Concatenate all Opus frames
-                    encoded_audio = b''.join(opus_frames)
+                    # Concatenate Opus frames with 2-byte length headers for ESP32 parsing
+                    # Format: [len_bytes(2)] [opus_frame] [len_bytes(2)] [opus_frame] ...
+                    encoded_audio = b''
+                    for opus_frame in opus_frames:
+                        encoded_audio += len(opus_frame).to_bytes(2, 'little')
+                        encoded_audio += opus_frame
                     audio_format = 'opus_16khz_mono'
 
-                    logging.info(f"🗜️  Opus encoding: {original_size} bytes PCM → {len(encoded_audio)} bytes Opus ({len(encoded_audio)/original_size*100:.1f}% of original)")
+                    raw_opus_size = sum(len(f) for f in opus_frames)
+                    logging.info(f"🗜️  Opus encoding: {original_size} bytes PCM → {raw_opus_size} bytes Opus + {len(opus_frames)*2} bytes headers = {len(encoded_audio)} total ({raw_opus_size/original_size*100:.1f}% compression)")
 
                 except ImportError:
                     logging.warning("opuslib not available, falling back to PCM")
@@ -317,10 +322,11 @@ class WebSocketTTSServer:
                 encoded_audio = audio_data
                 audio_format = 'pcm_16bit_mono_16khz'
 
-            # Chunk size depends on encoding
-            # Opus: ~100 bytes per 20ms frame, use 1KB chunks for ~10 frames
-            # PCM: 1KB = ~30ms of audio
-            CHUNK_SIZE = 1024 if not use_opus else 1024
+            # 1KB chunks - proven reliable for ESP32 WebSocket buffer
+            # ESP32 WS buffer: 4096 bytes (CONFIG_WS_BUFFER_SIZE)
+            # 1KB binary → 1.37KB base64 + ~300B JSON = ~1.7KB total (safe, tested)
+            # ESP32 150-chunk PSRAM buffer provides smooth playback despite smaller chunks
+            CHUNK_SIZE = 1024  # 1KB per chunk (proven reliable)
             total_bytes = len(encoded_audio)
             num_chunks = (total_bytes + CHUNK_SIZE - 1) // CHUNK_SIZE
             session = session_id or f"tts_{int(time.time())}"
@@ -352,6 +358,9 @@ class WebSocketTTSServer:
             }
             await self.devices[device_id].send(json.dumps(session_start_msg))
             logging.info(f"🎬 Sent TTS session start: {session}")
+
+            # Track transmission timing
+            transmission_start = time.time()
 
             # Send audio in chunks (matching ESP32's expected format)
             for chunk_index in range(num_chunks):
@@ -393,10 +402,14 @@ class WebSocketTTSServer:
                 self.transmission_stats['per_device'][device_id]['chunks_sent'] += 1
                 self.transmission_stats['per_device'][device_id]['bytes_sent'] += len(chunk_data)
 
-                # Delay between chunks to avoid overwhelming ESP32 TTS queue (max ~10 chunks)
-                # 50ms allows ESP32 to drain queue while receiving new chunks
-                if chunk_index < num_chunks - 1:
-                    await asyncio.sleep(0.05)  # 50ms between chunks
+                # NO DELAY - mirroring ESP32's reliable STT audio streaming pattern
+                # ESP32 sends 640-byte chunks (20ms audio) with zero delay
+                # ESP32 150-chunk PSRAM buffer (300KB, ~9s) handles continuous streaming
+                # No artificial delays needed - let the PSRAM buffer do its job
+                pass  # No delay between chunks
+
+            # Calculate actual transmission time
+            transmission_time_ms = int((time.time() - transmission_start) * 1000)
 
             # Send session end message
             session_end_msg = {
@@ -406,7 +419,7 @@ class WebSocketTTSServer:
                     'total_chunks_sent': num_chunks,
                     'total_audio_bytes': total_bytes,
                     'actual_duration_ms': int((total_bytes / 2) / 16000 * 1000) if not use_opus else 0,
-                    'transmission_time_ms': int((num_chunks * 20)),  # Approximate based on 20ms delays
+                    'transmission_time_ms': transmission_time_ms,
                     'return_to_listening': True
                 }
             }
@@ -457,6 +470,190 @@ class WebSocketTTSServer:
             logging.error(f"Failed to send TTS audio sync to {device_id}: {e}")
             return False
     
+    async def send_tts_audio_streaming(self, device_id: str, text: str, session_id: str = None):
+        """
+        Stream TTS audio as it's generated (natural rate-limiting).
+
+        Generates TTS in small text chunks and sends each audio chunk immediately,
+        providing natural pacing from TTS generation speed. Eliminates artificial
+        delays and prevents ESP32 buffer overflow.
+
+        Args:
+            device_id: Target ESP32-P4 device ID
+            text: Text to convert to speech
+            session_id: Optional session ID for tracking
+
+        Returns:
+            bool: True if streaming succeeded, False otherwise
+        """
+        if device_id not in self.devices:
+            logging.error(f"Device {device_id} not connected")
+            return False
+
+        try:
+            import re
+            import base64
+            import soundfile as sf
+            from voice_assistant.kokoro_manager import KokoroManager
+            from voice_assistant.config import Config
+
+            # Get Kokoro TTS instance
+            kokoro = KokoroManager.get_instance()
+            session = session_id or f"tts_stream_{int(time.time())}"
+
+            # Clean text and split into small chunks (sentences/phrases)
+            # Split on sentence boundaries for natural pacing
+            text = text.strip()
+            sentence_chunks = re.split(r'([.!?]+\s+)', text)
+
+            # Reconstruct with punctuation
+            chunks = []
+            for i in range(0, len(sentence_chunks)-1, 2):
+                chunk = sentence_chunks[i] + (sentence_chunks[i+1] if i+1 < len(sentence_chunks) else '')
+                chunk = chunk.strip()
+                if chunk:
+                    chunks.append(chunk)
+            # Add remaining text if any
+            if len(sentence_chunks) % 2 == 1 and sentence_chunks[-1].strip():
+                chunks.append(sentence_chunks[-1].strip())
+
+            if not chunks:
+                logging.warning("No text chunks to generate")
+                return False
+
+            logging.info(f"📝 Streaming TTS for {device_id}: '{text[:50]}...' ({len(chunks)} sentence chunks)")
+
+            # Send session start
+            session_start_msg = {
+                'type': 'tts_audio_start',
+                'session_info': {
+                    'session_id': session,
+                    'total_chunks_expected': -1,  # Unknown - streaming mode
+                    'audio_format': 'pcm_16bit_mono_16khz',
+                    'streaming': True
+                }
+            }
+            await self.devices[device_id].send(json.dumps(session_start_msg))
+
+            total_bytes = 0
+            total_chunks_sent = 0
+            generation_start = time.time()
+
+            # Generate and send each chunk immediately
+            for chunk_idx, text_chunk in enumerate(chunks):
+                try:
+                    # Generate TTS for this chunk (natural rate-limiting here)
+                    gen_start = time.time()
+                    samples, sample_rate = kokoro.create(
+                        text_chunk,
+                        voice=Config.KOKORO_VOICE,
+                        speed=Config.KOKORO_SPEED,
+                        lang="en-us"
+                    )
+                    gen_time = time.time() - gen_start
+
+                    # Convert to 16-bit PCM bytes
+                    audio_data = (samples * 32767).astype(np.int16).tobytes()
+
+                    # Resample to 16kHz if needed
+                    if sample_rate != 16000:
+                        import io
+                        from scipy import signal
+
+                        # Write to temporary buffer
+                        buffer = io.BytesIO()
+                        sf.write(buffer, samples, sample_rate, format='WAV')
+                        buffer.seek(0)
+
+                        # Resample
+                        resampled_samples = signal.resample(samples, int(len(samples) * 16000 / sample_rate))
+                        audio_data = (resampled_samples * 32767).astype(np.int16).tobytes()
+
+                    # Send this audio chunk immediately
+                    # Split into 1KB WebSocket chunks for ESP32 buffer
+                    CHUNK_SIZE = 1024
+                    audio_bytes = len(audio_data)
+                    num_ws_chunks = (audio_bytes + CHUNK_SIZE - 1) // CHUNK_SIZE
+
+                    logging.info(f"🎵 Chunk {chunk_idx+1}/{len(chunks)}: '{text_chunk[:30]}...' → {audio_bytes}B audio ({gen_time:.2f}s TTS gen) → {num_ws_chunks} WS chunks")
+
+                    for ws_chunk_idx in range(num_ws_chunks):
+                        start_idx = ws_chunk_idx * CHUNK_SIZE
+                        end_idx = min(start_idx + CHUNK_SIZE, audio_bytes)
+                        chunk_data = audio_data[start_idx:end_idx]
+
+                        # Send WebSocket chunk
+                        chunk_msg = {
+                            'type': 'tts_audio_chunk',
+                            'chunk_info': {
+                                'session_id': session,
+                                'chunk_sequence': total_chunks_sent,
+                                'chunk_data': base64.b64encode(chunk_data).decode('utf-8'),
+                                'audio_format': 'pcm_16bit_mono_16khz',
+                                'text_chunk_index': chunk_idx,
+                                'is_last_in_text_chunk': (ws_chunk_idx == num_ws_chunks - 1)
+                            }
+                        }
+                        await self.devices[device_id].send(json.dumps(chunk_msg))
+                        total_chunks_sent += 1
+
+                        # Rate-limiting: 30ms delay per chunk to match ESP32 playback
+                        # ESP32 playback: 16kHz × 2 bytes = 32 bytes/ms
+                        # 1KB chunk = 1024 bytes ÷ 32 bytes/ms = 32ms playback time
+                        # Send every 30ms to stay ahead but not overwhelm buffer
+                        if ws_chunk_idx < num_ws_chunks - 1:  # Skip delay on last chunk of sentence
+                            await asyncio.sleep(0.030)  # 30ms delay
+
+                    total_bytes += audio_bytes
+
+                    # No additional delay between sentences - 30ms/chunk provides enough pacing
+
+                except Exception as e:
+                    logging.error(f"Error generating/sending chunk {chunk_idx}: {e}")
+                    continue
+
+            total_time = time.time() - generation_start
+
+            # Send session end
+            session_end_msg = {
+                'type': 'tts_audio_end',
+                'session_info': {
+                    'session_id': session,
+                    'total_chunks_sent': total_chunks_sent,
+                    'total_audio_bytes': total_bytes,
+                    'actual_duration_ms': int((total_bytes / 2) / 16000 * 1000),
+                    'generation_time_ms': int(total_time * 1000),
+                    'return_to_listening': True
+                }
+            }
+            await self.devices[device_id].send(json.dumps(session_end_msg))
+
+            logging.info(f"✅ Streaming TTS complete: {total_bytes}B in {total_chunks_sent} chunks ({total_time:.2f}s total)")
+            return True
+
+        except Exception as e:
+            logging.error(f"Failed to stream TTS audio to {device_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def send_tts_audio_streaming_sync(self, device_id: str, text: str, session_id: str = None):
+        """Send TTS audio using streaming generation (thread-safe)."""
+        if not self.loop or not self.running:
+            return False
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.send_tts_audio_streaming(device_id, text, session_id),
+            self.loop
+        )
+
+        try:
+            # Generous timeout for streaming generation
+            return future.result(timeout=60.0)
+        except Exception as e:
+            logging.error(f"Failed to stream TTS audio sync to {device_id}: {e}")
+            return False
+
     def get_connected_devices(self) -> Dict[str, Dict[str, Any]]:
         """Get list of connected ESP32-P4 devices."""
         return {

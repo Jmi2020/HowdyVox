@@ -252,13 +252,13 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                 # Save the audio file as WAV
                 sf.write(first_chunk_file, samples, sample_rate)
 
-                # Also save as Opus for efficient wireless transmission
-                first_chunk_opus = first_chunk_file.replace('.wav', '.opus')
-                opus_encoded = encode_pcm_to_opus(samples, sample_rate, first_chunk_opus)
+                # Opus encoding disabled (broken opuslib on Apple Silicon)
+                # TODO: Re-enable after fixing opuslib installation
+                # first_chunk_opus = first_chunk_file.replace('.wav', '.opus')
+                # opus_encoded = encode_pcm_to_opus(samples, sample_rate, first_chunk_opus)
 
                 first_chunk_time = time.time() - first_chunk_start
-                format_info = " + Opus" if opus_encoded else ""
-                logging.info(f"Generated chunk 1/{len(chunks)}: {first_chunk_file}{format_info} (took {first_chunk_time:.3f}s)")
+                logging.info(f"Generated chunk 1/{len(chunks)}: {first_chunk_file} (took {first_chunk_time:.3f}s)")
                 
                 # Enhanced background thread with adaptive pre-buffering
                 def generate_remaining_chunks():
@@ -296,16 +296,16 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                                 # Save the audio file as WAV
                                 sf.write(chunk_file, samples, sample_rate)
 
-                                # Also save as Opus for efficient wireless transmission
-                                chunk_opus = chunk_file.replace('.wav', '.opus')
-                                opus_encoded = encode_pcm_to_opus(samples, sample_rate, chunk_opus)
+                                # Opus encoding disabled (broken opuslib on Apple Silicon)
+                                # TODO: Re-enable after fixing opuslib installation
+                                # chunk_opus = chunk_file.replace('.wav', '.opus')
+                                # opus_encoded = encode_pcm_to_opus(samples, sample_rate, chunk_opus)
 
                                 chunk_generation_time = time.time() - chunk_start_time
 
                                 # Add this chunk to the queue
                                 chunk_queue.put(chunk_file)
-                                format_info = " + Opus" if opus_encoded else ""
-                                logging.info(f"Generated chunk {i+1}/{len(chunks)}: {chunk_file}{format_info} (took {chunk_generation_time:.3f}s)")
+                                logging.info(f"Generated chunk {i+1}/{len(chunks)}: {chunk_file} (took {chunk_generation_time:.3f}s)")
                                 
                             except Exception as e:
                                 logging.error(f"Error generating chunk {i+1}: {str(e)}")

@@ -691,69 +691,71 @@ def main():
             if led_matrix:
                 led_matrix.set_speaking(response_text)
             
-            # Determine adaptive delays based on response complexity
+            # WIRELESS MODE: Use streaming TTS (no file generation)
+            if WIRELESS_MODE_ENABLED and hasattr(audio_source_manager, '_network_source'):
+                logging.info(f"🎵 Streaming TTS to ESP32-P4 devices: {len(response_text)} characters")
+                try:
+                    success = audio_source_manager._network_source.send_tts_text_streaming(response_text)
+                    if success:
+                        logging.info(f"✅ Streamed TTS to ESP32-P4 devices successfully")
+                    else:
+                        logging.warning(f"⚠️ Failed to stream TTS to ESP32-P4 devices")
+                except Exception as e:
+                    logging.error(f"❌ Error streaming TTS to ESP32-P4: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+                # Back to listening
+                if led_matrix:
+                    led_matrix.set_listening()
+                continue
+
+            # LOCAL MODE: Generate TTS files and play locally (legacy path)
             response_length = len(response_text)
             logging.info(f"Response length: {response_length} characters")
-            
+
             if response_length < 100:
                 playback_delay = 0.1  # Short responses
             elif response_length < 500:
                 playback_delay = 0.2  # Medium responses
             else:
                 playback_delay = 0.3  # Long responses - more stabilization time
-            
+
             # Get just the first chunk
             try:
                 success, first_chunk_file = text_to_speech(
-                    Config.TTS_MODEL, 
-                    tts_api_key, 
-                    response_text, 
-                    output_file, 
+                    Config.TTS_MODEL,
+                    tts_api_key,
+                    response_text,
+                    output_file,
                     Config.LOCAL_MODEL_PATH
                 )
             except Exception as tts_error:
                 logging.error(f"TTS generation failed: {tts_error}")
                 success = False
                 first_chunk_file = None
-            
+
             # List to track files for cleanup
             files_to_cleanup = []
-            
+
             if success and first_chunk_file:
                 # Add first chunk to cleanup list
                 files_to_cleanup.append(first_chunk_file)
-                
+
                 # Define a thread to handle playback of all chunks with enhanced monitoring and timing
                 def play_all_chunks():
                     try:
                         # Enhanced adaptive delay with detailed logging
                         logging.info(f"Using {playback_delay:.3f}s stabilization delay for {response_length} character response")
                         time.sleep(playback_delay)
-                        
+
                         # Play the first chunk after the stabilization delay with timing
                         first_chunk_start = time.time()
                         logging.info(f"Starting playback of first chunk after {playback_delay:.3f}s stabilization")
-                        
-                        # In wireless mode, NEVER play audio locally - only send to ESP32-P4
-                        if not WIRELESS_MODE_ENABLED:
-                            logging.info("🎧 Playing TTS locally")
-                            play_audio(first_chunk_file)
-                        else:
-                            logging.debug("🔇 Wireless mode - skipping local TTS playback")
 
-                        # Send to ESP32-P4 devices if using wireless audio
-                        if WIRELESS_MODE_ENABLED and hasattr(audio_source_manager, '_network_source'):
-                            try:
-                                success = audio_source_manager._network_source.send_tts_audio_to_devices(
-                                    first_chunk_file, 
-                                    response_text[:50] + ('...' if len(response_text) > 50 else '')
-                                )
-                                if success:
-                                    logging.info(f"📡 Sent TTS chunk to ESP32-P4 devices")
-                                else:
-                                    logging.warning(f"⚠️ Failed to send TTS chunk to ESP32-P4 devices")
-                            except Exception as e:
-                                logging.error(f"❌ Error sending TTS to ESP32-P4: {e}")
+                        # Local playback
+                        logging.info("🎧 Playing TTS locally")
+                        play_audio(first_chunk_file)
                         
                         first_chunk_duration = time.time() - first_chunk_start
                         logging.info(f"First chunk playback completed in {first_chunk_duration:.3f}s")

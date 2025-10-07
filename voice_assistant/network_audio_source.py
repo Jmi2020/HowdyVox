@@ -198,62 +198,72 @@ class NetworkAudioSource:
         
         logging.info("NetworkAudioSource stopped")
     
+    def send_tts_text_streaming(self, text: str) -> bool:
+        """
+        Stream TTS audio to all connected ESP32-P4 devices (natural rate-limiting).
+
+        Generates TTS in sentence chunks and sends each immediately, providing
+        natural rate-limiting from TTS generation speed.
+
+        Args:
+            text: Text to convert to speech and stream
+
+        Returns:
+            bool: True if streaming succeeded to at least one device
+        """
+        tts_server = get_websocket_tts_server()
+        if not tts_server:
+            logging.warning("WebSocket TTS server not available")
+            return False
+
+        devices = tts_server.get_connected_devices()
+        if not devices:
+            logging.info("No ESP32-P4 devices connected for TTS streaming")
+            return False
+
+        try:
+            success_count = 0
+            for device_id in devices:
+                if tts_server.send_tts_audio_streaming_sync(device_id, text):
+                    success_count += 1
+                    logging.info(f"🔊 Streamed TTS to {device_id}: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+                else:
+                    logging.error(f"Failed to stream TTS to {device_id}")
+
+            logging.info(f"📡 TTS streamed to {success_count}/{len(devices)} ESP32-P4 devices")
+            return success_count > 0
+
+        except Exception as e:
+            logging.error(f"Error streaming TTS to ESP32-P4 devices: {e}")
+            return False
+
     def send_tts_audio_to_devices(self, audio_file_path: str, text: str = "") -> bool:
         """Send TTS audio file to all connected ESP32-P4 devices."""
         tts_server = get_websocket_tts_server()
         if not tts_server:
             logging.warning("WebSocket TTS server not available")
             return False
-        
+
         devices = tts_server.get_connected_devices()
         if not devices:
             logging.info("No ESP32-P4 devices connected for TTS playback")
             return False
 
         try:
-            # Check if pre-encoded Opus file exists (preferred - 10x smaller than WAV)
-            opus_file_path = audio_file_path.replace('.wav', '.opus')
+            # Load WAV file for TTS playback
+            # Opus encoding is done in real-time by websocket_tts_server
             audio_data = None
-            is_pre_encoded_opus = False
 
-            if os.path.exists(opus_file_path):
-                # Load pre-encoded Opus file (already compressed by TTS generator)
-                try:
-                    with open(opus_file_path, 'rb') as f:
-                        # Read raw Opus frames with 2-byte length headers
-                        opus_bytes = f.read()
-
-                    # Extract just the Opus frames (strip length headers)
-                    audio_data = b''
-                    offset = 0
-                    while offset < len(opus_bytes):
-                        if offset + 2 > len(opus_bytes):
-                            break
-                        frame_len = int.from_bytes(opus_bytes[offset:offset+2], 'little')
-                        offset += 2
-                        if offset + frame_len > len(opus_bytes):
-                            break
-                        audio_data += opus_bytes[offset:offset+frame_len]
-                        offset += frame_len
-
-                    is_pre_encoded_opus = True
-                    logging.info(f"📦 Using pre-encoded Opus: {len(audio_data)} bytes ({opus_file_path})")
-                except Exception as e:
-                    logging.warning(f"Failed to load Opus file, falling back to WAV: {e}")
-                    audio_data = None
-
-            # Fall back to WAV if Opus not available
-            if audio_data is None:
-                import wave
-                with wave.open(audio_file_path, 'rb') as wav_file:
-                    # Ensure correct format for ESP32-P4: 16kHz, mono, 16-bit PCM
-                    if wav_file.getsampwidth() != 2 or wav_file.getnchannels() != 1 or wav_file.getframerate() != 16000:
-                        logging.warning(f"Audio file format mismatch - converting: {audio_file_path}")
-                        audio_data = self._convert_audio_format(audio_file_path)
-                    else:
-                        # Audio is already in correct format
-                        audio_data = wav_file.readframes(wav_file.getnframes())
-                logging.info(f"📦 Loaded PCM WAV: {len(audio_data)} bytes (will encode to Opus in real-time)")
+            import wave
+            with wave.open(audio_file_path, 'rb') as wav_file:
+                # Ensure correct format for ESP32-P4: 16kHz, mono, 16-bit PCM
+                if wav_file.getsampwidth() != 2 or wav_file.getnchannels() != 1 or wav_file.getframerate() != 16000:
+                    logging.warning(f"Audio file format mismatch - converting: {audio_file_path}")
+                    audio_data = self._convert_audio_format(audio_file_path)
+                else:
+                    # Audio is already in correct format
+                    audio_data = wav_file.readframes(wav_file.getnframes())
+            logging.info(f"📦 Loaded PCM WAV: {len(audio_data)} bytes (will encode to Opus)")
 
             if not audio_data:
                 logging.error(f"No audio data loaded from {audio_file_path}")
@@ -261,17 +271,17 @@ class NetworkAudioSource:
 
             success_count = 0
             for device_id in devices:
-                # use_opus parameter: False=audio_data is already Opus, True=audio_data is PCM (needs encoding)
-                if tts_server.send_tts_audio_sync(device_id, audio_data, use_opus=not is_pre_encoded_opus):
+                # Send PCM audio (Opus encoder broken - returns 100% size)
+                # TODO: Fix opuslib installation on Apple Silicon before re-enabling
+                if tts_server.send_tts_audio_sync(device_id, audio_data, use_opus=False):
                     success_count += 1
-                    format_str = "pre-encoded Opus" if is_pre_encoded_opus else "PCM→Opus real-time"
-                    logging.info(f"🔊 Sent TTS to {device_id} [{format_str}]: '{text[:30]}{'...' if len(text) > 30 else ''}'")
+                    logging.info(f"🔊 Sent TTS to {device_id} [PCM]: '{text[:30]}{'...' if len(text) > 30 else ''}'")
                 else:
                     logging.error(f"Failed to send TTS audio to {device_id}")
-            
+
             logging.info(f"📡 TTS audio sent to {success_count}/{len(devices)} ESP32-P4 devices")
             return success_count > 0
-            
+
         except Exception as e:
             logging.error(f"Error sending TTS audio to ESP32-P4 devices: {e}")
             return False
