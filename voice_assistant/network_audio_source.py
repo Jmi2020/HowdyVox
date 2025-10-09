@@ -17,7 +17,7 @@ from .config import Config
 class NetworkAudioSource:
     """
     Network-based audio source that integrates wireless ESP32P4 devices
-    with HowdyTTS's existing audio pipeline and VAD system.
+    with HowdyVox's existing audio pipeline and VAD system.
     
     This class provides the same interface as the local microphone
     but receives audio from wireless devices over UDP.

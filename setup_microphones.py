@@ -2,7 +2,7 @@
 
 #!/usr/bin/env python3
 """
-Microphone Setup Wizard for Multi-Room HowdyTTS
+Microphone Setup Wizard for Multi-Room HowdyVox
 
 This wizard helps you assign specific USB microphones to different rooms.
 """
@@ -55,7 +55,7 @@ def test_microphone(index, duration=3):
 
 def setup_wizard():
     """Run the microphone setup wizard."""
-    print(f"\n{Fore.CYAN}=== HowdyTTS Multi-Room Microphone Setup ==={Fore.RESET}")
+    print(f"\n{Fore.CYAN}=== HowdyVox Multi-Room Microphone Setup ==={Fore.RESET}")
     print(f"\nThis wizard will help you assign USB microphones to different rooms.")
     
     # Create microphone manager
@@ -152,7 +152,7 @@ def setup_wizard():
         if mic_index is not None:
             print(f"  {room}: Microphone {mic_index}")
     
-    print(f"\n{Fore.CYAN}You can now launch HowdyTTS with:{Fore.RESET}")
+    print(f"\n{Fore.CYAN}You can now launch HowdyVox with:{Fore.RESET}")
     for room in rooms:
         print(f"  python run_voice_assistant.py --room \"{room}\"")
 

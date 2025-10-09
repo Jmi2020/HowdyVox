@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple launcher for HowdyTTS that starts FastWhisperAPI and Voice Assistant.
+Simple launcher for HowdyVox that starts FastWhisperAPI and Voice Assistant.
 Shows all output for debugging and monitoring.
 """
 
@@ -50,7 +50,7 @@ class SimpleLauncher:
         # Set up signal handler
         signal.signal(signal.SIGINT, self.cleanup)
         
-        print("🤠 HowdyTTS Simple Launcher")
+        print("🤠 HowdyVox Simple Launcher")
         print("=" * 50)
         
         # Check if we're in the right directory
@@ -130,7 +130,7 @@ class SimpleLauncher:
                     if not line:
                         break
                     if show_raw:
-                        # For HowdyTTS, show output without prefix for cleaner display
+                        # For HowdyVox, show output without prefix for cleaner display
                         print(line.rstrip(), flush=True)
                     else:
                         print(f"   [{prefix}] {line.rstrip()}", flush=True)
@@ -148,7 +148,7 @@ class SimpleLauncher:
                     if not line:
                         break
                     if show_raw:
-                        # For HowdyTTS, show stderr as normal output since it contains logs
+                        # For HowdyVox, show stderr as normal output since it contains logs
                         print(line.rstrip(), flush=True)
                     else:
                         # FastAPI logs go to stderr by default, so not all stderr is errors
@@ -201,9 +201,9 @@ class SimpleLauncher:
         self.processes.append(va_proc)
         
         # Monitor Voice Assistant output in threads too
-        # Use show_raw=True to display HowdyTTS output without prefixes
-        va_stdout_thread = threading.Thread(target=monitor_output, args=(va_proc, "HowdyTTS", True))
-        va_stderr_thread = threading.Thread(target=monitor_error, args=(va_proc, "HowdyTTS", True))
+        # Use show_raw=True to display HowdyVox output without prefixes
+        va_stdout_thread = threading.Thread(target=monitor_output, args=(va_proc, "HowdyVox", True))
+        va_stderr_thread = threading.Thread(target=monitor_error, args=(va_proc, "HowdyVox", True))
         va_stdout_thread.daemon = True
         va_stderr_thread.daemon = True
         va_stdout_thread.start()
@@ -212,7 +212,7 @@ class SimpleLauncher:
         print("\n✅ Both processes started!")
         print("Press Ctrl+C to stop")
         print("=" * 50)
-        print("\n--- HowdyTTS Voice Assistant Output ---\n")
+        print("\n--- HowdyVox Voice Assistant Output ---\n")
         
         # Continue monitoring in main thread
         try:

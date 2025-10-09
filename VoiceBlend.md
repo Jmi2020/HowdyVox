@@ -1,6 +1,6 @@
-# Voice Blending in HowdyTTS
+# Voice Blending in HowdyVox
 
-This guide explains how to use the voice blending capability in HowdyTTS, which allows you to create custom voices by combining multiple base voices at different ratios.
+This guide explains how to use the voice blending capability in HowdyVox, which allows you to create custom voices by combining multiple base voices at different ratios.
 
 ## Introduction
 
@@ -8,7 +8,7 @@ Voice blending combines multiple voice styles from Kokoro ONNX to create unique 
 
 ## Available Voices
 
-HowdyTTS supports all the voices included in the Kokoro ONNX model. The voice IDs follow a specific naming pattern:
+HowdyVox supports all the voices included in the Kokoro ONNX model. The voice IDs follow a specific naming pattern:
 
 - `af_*` - Female English US voices (e.g., `af_nicole`, `af_bella`)
 - `am_*` - Male English US voices (e.g., `am_michael`, `am_eric`) 

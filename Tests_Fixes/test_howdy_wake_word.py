@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for running Porcupine wake word detection in HowdyTTS
+Test script for running Porcupine wake word detection in HowdyVox
 """
 
 import os

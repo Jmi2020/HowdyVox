@@ -118,7 +118,7 @@ def main():
         return
     
     print("\n===== ONNX Runtime Fix Complete =====")
-    print("\nIf all checks passed, your system is now properly configured for HowdyTTS.")
+    print("\nIf all checks passed, your system is now properly configured for HowdyVox.")
     print("You can now run the voice assistant:")
     print("  python run_voice_assistant.py")
 

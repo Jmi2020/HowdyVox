@@ -1,4 +1,4 @@
-# HowdyTTS Quick Start Guide
+# HowdyVox Quick Start Guide
 
 ## Single Command Launch 🚀
 
@@ -14,7 +14,7 @@ python launch_howdy_shell.py
    - Current active environment
    - `environment.yml` file  
    - Common environment names (`howdytts`, `howdy`, etc.)
-2. Automatically run both FastWhisperAPI and HowdyTTS in that environment
+2. Automatically run both FastWhisperAPI and HowdyVox in that environment
 
 ### Manual conda environment specification:
 ```bash
@@ -49,7 +49,7 @@ python launch_howdy.py --auto
 
 ## Runtime Audio Switching 🎛️
 
-While HowdyTTS is running, use these hotkeys to switch audio sources:
+While HowdyVox is running, use these hotkeys to switch audio sources:
 
 - **`Ctrl+Alt+L`** - Switch to local microphone
 - **`Ctrl+Alt+W`** - Switch to wireless microphone  
@@ -73,7 +73,7 @@ While HowdyTTS is running, use these hotkeys to switch audio sources:
    idf.py flash monitor
    ```
 
-3. **The device will auto-discover** and appear in HowdyTTS
+3. **The device will auto-discover** and appear in HowdyVox
 
 ## What's Improved
 

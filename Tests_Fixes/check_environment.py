@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Check if the Python environment has all required dependencies for HowdyTTS
+Check if the Python environment has all required dependencies for HowdyVox
 """
 
 import sys
@@ -25,7 +25,7 @@ def get_package_version(package_name):
         return None
 
 def main():
-    print("\n===== HowdyTTS Environment Check =====\n")
+    print("\n===== HowdyVox Environment Check =====\n")
     
     # Python version check
     py_version = sys.version.split()[0]
@@ -33,7 +33,7 @@ def main():
     
     py_major, py_minor, _ = py_version.split(".")
     if int(py_major) != 3 or int(py_minor) != 10:
-        print(f"⚠️  Warning: HowdyTTS is designed for Python 3.10, you're using {py_major}.{py_minor}")
+        print(f"⚠️  Warning: HowdyVox is designed for Python 3.10, you're using {py_major}.{py_minor}")
     else:
         print("✅ Python 3.10 detected (correct version)")
     

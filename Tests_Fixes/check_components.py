@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive check of all HowdyTTS components
+Comprehensive check of all HowdyVox components
 """
 
 import os
@@ -231,7 +231,7 @@ def check_audio():
     return len(missing) == 0
 
 def main():
-    print("\n===== HowdyTTS Component Check =====\n")
+    print("\n===== HowdyVox Component Check =====\n")
     
     # System info
     print("----- System Information -----")
@@ -265,11 +265,11 @@ def main():
             all_ok = False
     
     if all_ok:
-        print("\n✅ All components are properly set up! You can run HowdyTTS now.")
+        print("\n✅ All components are properly set up! You can run HowdyVox now.")
         print("   Use: python run_voice_assistant.py")
     else:
         print("\n❌ Some components are missing or misconfigured.")
-        print("   Please fix the issues above before running HowdyTTS.")
+        print("   Please fix the issues above before running HowdyVox.")
     
     print("\n===== Component Check Complete =====")
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Setting up macOS Voice Isolation for HowdyTTS"
+echo "Setting up macOS Voice Isolation for HowdyVox"
 echo "==========================================="
 
 # Check macOS version
@@ -51,7 +51,7 @@ if [ $? -eq 0 ]; then
     echo "Setup complete! You can now test with:"
     echo "  python3 Tests_Fixes/test_mac_voice_isolation.py"
     echo ""
-    echo "Voice isolation will be automatically enabled when you run HowdyTTS"
+    echo "Voice isolation will be automatically enabled when you run HowdyVox"
 else
     echo ""
     echo "Setup failed. Please check the error messages above."

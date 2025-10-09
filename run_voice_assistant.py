@@ -211,7 +211,7 @@ def main():
     global led_matrix, network_audio_source, audio_source_manager
     
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='HowdyTTS Voice Assistant')
+    parser = argparse.ArgumentParser(description='HowdyVox Voice Assistant')
     parser.add_argument('--wireless', action='store_true', 
                        help='Use wireless ESP32P4 devices instead of local microphone')
     parser.add_argument('--room', type=str, 

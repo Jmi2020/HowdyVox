@@ -1,8 +1,8 @@
-# Intelligent Voice Activity Detection Implementation Guide for HowdyTTS
+# Intelligent Voice Activity Detection Implementation Guide for HowdyVox
 
 ## Executive Summary
 
-This guide provides a comprehensive implementation plan for replacing the current energy-based voice activity detection (VAD) system in HowdyTTS with an intelligent, neural network-based solution. The new system addresses two critical issues: missing the beginning of user speech and cutting off recordings too early during natural pauses.
+This guide provides a comprehensive implementation plan for replacing the current energy-based voice activity detection (VAD) system in HowdyVox with an intelligent, neural network-based solution. The new system addresses two critical issues: missing the beginning of user speech and cutting off recordings too early during natural pauses.
 
 ## Problem Analysis
 
@@ -935,7 +935,7 @@ To ensure smooth migration:
 
 ## Conclusion
 
-This implementation provides a robust, intelligent voice activity detection system that solves the original problems while maintaining compatibility with the existing HowdyTTS architecture. The modular design allows for easy testing, debugging, and rollback if needed.
+This implementation provides a robust, intelligent voice activity detection system that solves the original problems while maintaining compatibility with the existing HowdyVox architecture. The modular design allows for easy testing, debugging, and rollback if needed.
 
 The key improvements are:
 - Never missing speech beginnings with pre-speech buffering
@@ -943,4 +943,4 @@ The key improvements are:
 - Better handling of various speaking styles and conditions
 - Maintainable and testable code structure
 
-The system is ready for integration and should significantly improve the user experience of the HowdyTTS voice assistant.
+The system is ready for integration and should significantly improve the user experience of the HowdyVox voice assistant.

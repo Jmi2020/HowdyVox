@@ -9,11 +9,15 @@ import os
 import signal
 import time
 
+# Configurable conda environment (can be set via env variable or edit this default)
+CONDA_ENV = os.getenv("HOWDYVOX_CONDA_ENV", "howdy310")
+CONDA_PATH = os.getenv("CONDA_PATH", "/opt/anaconda3/bin/conda")
+
 # Store process references for cleanup
 processes = []
 
 def signal_handler(sig, frame):
-    print("\n\nShutting down HowdyTTS...")
+    print("\n\nShutting down HowdyVox...")
     for proc in processes:
         try:
             proc.terminate()
@@ -29,7 +33,10 @@ def signal_handler(sig, frame):
 
 signal.signal(signal.SIGINT, signal_handler)
 
-print("🤠 HowdyTTS Terminal Launcher")
+print("🎙️ HowdyVox Terminal Launcher")
+print("=" * 50)
+print(f"Using conda environment: {CONDA_ENV}")
+print(f"Conda path: {CONDA_PATH}")
 print("=" * 50)
 
 # Kill any existing process on port 8000
@@ -48,9 +55,9 @@ except:
 # Start FastAPI in background
 print("\n1️⃣ Starting FastWhisperAPI in background...")
 fastapi_cmd = [
-    "/opt/anaconda3/bin/conda", "run", "-n", "howdy310",
+    CONDA_PATH, "run", "-n", CONDA_ENV,
     "--no-capture-output",  # Important: don't capture output
-    "python", "-u", "-m", "uvicorn", "main:app", 
+    "python", "-u", "-m", "uvicorn", "main:app",
     "--host", "127.0.0.1", "--port", "8000"
 ]
 
@@ -72,7 +79,7 @@ print("=" * 50)
 print()
 
 va_cmd = [
-    "/opt/anaconda3/bin/conda", "run", "-n", "howdy310",
+    CONDA_PATH, "run", "-n", CONDA_ENV,
     "--no-capture-output",  # Important: don't capture output
     "python", "-u", "run_voice_assistant.py"
 ]

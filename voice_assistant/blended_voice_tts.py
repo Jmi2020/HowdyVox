@@ -1,7 +1,7 @@
 """
-Blended Voice TTS Module for HowdyTTS
+Blended Voice TTS Module for HowdyVox
 
-This module extends the text-to-speech capabilities of HowdyTTS with voice blending.
+This module extends the text-to-speech capabilities of HowdyVox with voice blending.
 It allows for creating custom voice profiles by blending different voice styles.
 """
 

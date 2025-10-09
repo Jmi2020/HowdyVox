@@ -2,7 +2,7 @@
 """
 Blended Voice Configuration Tool
 
-This tool allows you to configure HowdyTTS to use a blended voice
+This tool allows you to configure HowdyVox to use a blended voice
 by creating a custom voice profile and patching the Kokoro TTS system.
 """
 
@@ -162,7 +162,7 @@ def list_available_voices():
     print("  af_nicole:30,am_michael:70")
 
 def main():
-    parser = argparse.ArgumentParser(description="Configure HowdyTTS to use a blended voice")
+    parser = argparse.ArgumentParser(description="Configure HowdyVox to use a blended voice")
     parser.add_argument("--name", type=str, default="blended_cowboy",
                         help="Name for the blended voice profile")
     parser.add_argument("--voices", type=str,

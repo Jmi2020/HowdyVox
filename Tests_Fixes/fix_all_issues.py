@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-One-stop script to diagnose and fix all common issues with HowdyTTS on Apple Silicon
+One-stop script to diagnose and fix all common issues with HowdyVox on Apple Silicon
 """
 
 import os
@@ -244,7 +244,7 @@ def fix_environment_variables():
     if not os.path.exists(env_file):
         # Create a new .env file
         with open(env_file, 'w') as f:
-            f.write("# HowdyTTS Environment Variables\n")
+            f.write("# HowdyVox Environment Variables\n")
             f.write("LOCAL_MODEL_PATH=models\n")
             f.write("# Add your Porcupine access key below\n")
             f.write("PORCUPINE_ACCESS_KEY=\n")
@@ -278,8 +278,8 @@ def fix_environment_variables():
     return True
 
 def main():
-    print("\n===== HowdyTTS Comprehensive Fix Tool =====")
-    print("This tool will diagnose and fix common issues with HowdyTTS on Apple Silicon Macs")
+    print("\n===== HowdyVox Comprehensive Fix Tool =====")
+    print("This tool will diagnose and fix common issues with HowdyVox on Apple Silicon Macs")
     
     # Check if we're running on Apple Silicon
     if platform.system() != "Darwin" or platform.machine() != "arm64":
@@ -345,7 +345,7 @@ def main():
         print("2. Some components could not be automatically fixed")
         print("   - Try running the individual fix scripts manually")
     
-    print("\nTo run HowdyTTS:")
+    print("\nTo run HowdyVox:")
     print("1. Make sure your conda environment is activated: conda activate howdy310")
     print("2. Run the updated script: ./run_howdy.sh")
     

@@ -1,6 +1,6 @@
 # ESP32P4 HowdyScreen Integration Guide
 
-This guide explains how to integrate your ESP32P4 HowdyScreen wireless microphone devices with HowdyTTS.
+This guide explains how to integrate your ESP32P4 HowdyScreen wireless microphone devices with HowdyVox.
 
 ## Overview
 
@@ -9,12 +9,12 @@ The ESP32P4 HowdyScreen integration allows you to use wireless microphone device
 - **Real-time audio streaming** via UDP with OPUS compression
 - **Multi-room support** with device discovery and assignment
 - **Visual feedback** through the ESP32P4's display and LED ring
-- **Seamless integration** with existing HowdyTTS VAD and processing
+- **Seamless integration** with existing HowdyVox VAD and processing
 
 ## Architecture
 
 ```
-ESP32P4 HowdyScreen Device          HowdyTTS Server
+ESP32P4 HowdyScreen Device          HowdyVox Server
 ┌─────────────────────────┐        ┌─────────────────────────┐
 │ • Microphone capture    │  UDP   │ • Wireless Audio Server │
 │ • OPUS encoding         │ ────── │ • Device Manager        │
@@ -31,7 +31,7 @@ ESP32P4 HowdyScreen Device          HowdyTTS Server
    ```c
    #define WIFI_SSID     "your_wifi_network"
    #define WIFI_PASSWORD "your_wifi_password"
-   #define SERVER_IP     "192.168.1.100"  // HowdyTTS server IP
+   #define SERVER_IP     "192.168.1.100"  // HowdyVox server IP
    ```
 
 2. **Build and flash** the ESP32P4 firmware:
@@ -41,7 +41,7 @@ ESP32P4 HowdyScreen Device          HowdyTTS Server
    idf.py -p /dev/cu.usbserial-* flash monitor
    ```
 
-### 2. HowdyTTS Setup
+### 2. HowdyVox Setup
 
 1. **Install additional dependencies**:
    ```bash
@@ -119,7 +119,7 @@ Wireless devices report their status including:
 
 ## Audio Pipeline Integration
 
-The wireless audio integration maintains compatibility with HowdyTTS's existing audio processing:
+The wireless audio integration maintains compatibility with HowdyVox's existing audio processing:
 
 ### Voice Activity Detection (VAD)
 - Uses the same **Silero neural VAD** as local microphones
@@ -133,13 +133,13 @@ The wireless audio integration maintains compatibility with HowdyTTS's existing 
 
 ### Processing Flow
 ```
-ESP32P4 Device → UDP/OPUS → HowdyTTS → VAD → Transcription → LLM → TTS → ESP32P4 Speaker
+ESP32P4 Device → UDP/OPUS → HowdyVox → VAD → Transcription → LLM → TTS → ESP32P4 Speaker
 ```
 
 ## Network Configuration
 
 ### Firewall Settings
-Ensure these ports are open on your HowdyTTS server:
+Ensure these ports are open on your HowdyVox server:
 - **UDP 8000**: Audio streaming from ESP32P4 devices
 - **UDP 8001**: Device discovery broadcasts
 
@@ -153,7 +153,7 @@ For best audio quality:
 ## Troubleshooting
 
 ### No Devices Found
-1. **Check network connectivity** - ESP32P4 and HowdyTTS on same network
+1. **Check network connectivity** - ESP32P4 and HowdyVox on same network
 2. **Verify firewall settings** - UDP ports 8000/8001 open
 3. **Check ESP32P4 serial output** for connection errors
 4. **Wait longer** - device discovery can take 10-15 seconds
@@ -168,7 +168,7 @@ For best audio quality:
 1. **Power supply issues** - ensure stable 5V power to ESP32P4
 2. **WiFi interference** - change WiFi channel
 3. **Check device logs** for specific error messages
-4. **Restart devices** - power cycle ESP32P4 and restart HowdyTTS
+4. **Restart devices** - power cycle ESP32P4 and restart HowdyVox
 
 ### Audio Latency
 - **Expected latency**: 2-5ms for audio, 50-100ms total response time
@@ -271,7 +271,7 @@ Currently uses local wake word detection. Future versions will support:
 - **Memory allocation**: TCM for audio buffers, PSRAM for large data
 - **Network tuning**: Disable WiFi power saving, optimize socket buffers
 
-### HowdyTTS Optimization
+### HowdyVox Optimization
 - **Audio buffering**: Configurable queue sizes for latency vs. reliability
 - **OPUS codec**: Hardware acceleration where available
 - **Memory management**: Automatic cleanup of audio resources

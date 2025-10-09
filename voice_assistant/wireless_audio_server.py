@@ -19,7 +19,7 @@ except ImportError:
 class WirelessAudioServer:
     """
     UDP server for receiving wireless audio from ESP32P4 HowdyScreen devices.
-    Handles OPUS decoding and integrates with HowdyTTS audio pipeline.
+    Handles OPUS decoding and integrates with HowdyVox audio pipeline.
     """
     
     def __init__(self, 

@@ -1,6 +1,6 @@
-# ESP32 LED Matrix for HowdyTTS
+# ESP32 LED Matrix for HowdyVox
 
-This directory contains the Arduino sketch for an ESP32-S3 based LED matrix display that shows the current state of the HowdyTTS voice assistant.
+This directory contains the Arduino sketch for an ESP32-S3 based LED matrix display that shows the current state of the HowdyVox voice assistant.
 
 ## Hardware Requirements
 
@@ -34,7 +34,7 @@ You'll need the following software:
 
 1. Install the Arduino IDE and add ESP32 support through the Board Manager
 2. Install the required libraries via the Library Manager
-3. Open the `HowdyTTS_LED_Matrix.ino` sketch
+3. Open the `HowdyVox_LED_Matrix.ino` sketch
 4. Edit the WiFi credentials:
    ```cpp
    const char* ssid = "Your_WiFi_SSID";      // Your WiFi network name
@@ -70,7 +70,7 @@ The ESP32 provides two HTTP endpoints:
 
 - **LED Matrix not working**: Check the wiring and make sure you've set the correct HARDWARE_TYPE
 - **WiFi not connecting**: Verify your WiFi credentials
-- **HowdyTTS not connecting to ESP32**: Make sure the IP address in your `.env` file matches the ESP32's IP address
+- **HowdyVox not connecting to ESP32**: Make sure the IP address in your `.env` file matches the ESP32's IP address
 - **Text not scrolling**: Ensure the text is being properly URL-encoded before sending
 
 ## Customization

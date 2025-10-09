@@ -192,22 +192,95 @@ LOCAL_MODEL_PATH="models"
 ESP32_IP="192.168.1.xxx"  # Optional: For LED matrix display
 ```
 
-### 6. Start the FastWhisperAPI service:
+### 6. Download Kokoro TTS models:
+
+HowdyVox uses Kokoro ONNX for high-quality, local text-to-speech. You need to download the voice models:
+
+**Option 1: Automatic Download (Recommended)**
+```bash
+pip install kokoro-onnx
+```
+This will automatically download models to `~/.kokoro_onnx/` on first use.
+
+**Option 2: Manual Download**
+If you want to use a specific model version or install locally:
+```bash
+python Tests_Fixes/download_kokoro_onnx_direct.py --type q8
+```
+
+**Available voice models:**
+- `am_michael` - American male (default "cowboy" voice)
+- `af_bella`, `af_nicole`, `af_sarah` - American female voices
+- `bf_emma`, `bf_isabella` - British female voices
+- `bm_lewis`, `bm_george` - British male voices
+- Plus 15+ additional voices in various languages
+
+List all available voices:
+```bash
+python blend_voices.py --list-voices
+```
+
+The models are lightweight (typically 50-100MB per voice) and run entirely offline.
+
+### 7. Start the FastWhisperAPI service:
 ```bash
 cd FastWhisperAPI
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-### 7. Install and start Ollama:
-a. Download Ollama from [ollama.com](https://ollama.com/)
-b. Start Ollama and pull your preferred model:
-```bash
-ollama run hf.co/unsloth/gemma-3-4b-it-GGUF:latest
-```
-You can substitute with any model of your choice.
+### 8. Install and configure Ollama (Language Model):
 
-### 8. (Optional) For Apple Silicon Macs - Enhanced ONNX Performance:
+HowdyVox uses Ollama to run local language models. This is where your AI's "brain" lives.
+
+**a. Download and install Ollama:**
+- Visit [ollama.com](https://ollama.com/)
+- Download for your platform (macOS, Linux, Windows)
+- Run the installer
+
+**b. Browse and choose your LLM:**
+Visit the [Ollama Library](https://ollama.com/library) to explore 100+ models:
+
+**Popular choices for conversational AI:**
+- **Gemma 3** (4B) - Fast, efficient, great for conversation ⭐ Recommended
+  ```bash
+  ollama pull hf.co/unsloth/gemma-3-4b-it-GGUF:latest
+  ```
+- **Llama 3.2** (3B) - Meta's latest, excellent quality
+  ```bash
+  ollama pull llama3.2:latest
+  ```
+- **Mistral** (7B) - Powerful reasoning, slightly slower
+  ```bash
+  ollama pull mistral:latest
+  ```
+- **DeepSeek-R1** (7B) - Advanced reasoning capabilities
+  ```bash
+  ollama pull deepseek-r1:7b
+  ```
+- **Phi-3** (3.8B) - Microsoft's compact, fast model
+  ```bash
+  ollama pull phi3:latest
+  ```
+
+**Model size guide:**
+- **3-4B parameters**: Fast responses, good quality, low RAM (~4-6GB)
+- **7-8B parameters**: Better quality, slower, moderate RAM (~8-12GB)
+- **13B+ parameters**: Highest quality, slowest, high RAM (~16GB+)
+
+**c. Test your model:**
+```bash
+ollama run gemma-3-4b-it-GGUF:latest
+```
+Type a test question, then Ctrl+D to exit.
+
+**d. Update HowdyVox to use your chosen model:**
+Edit `voice_assistant/config.py` and set:
+```python
+OLLAMA_LLM = "llama3.2:latest"  # Or your chosen model
+```
+
+### 9. (Optional) For Apple Silicon Macs - Enhanced ONNX Performance:
 ```bash
 # Run the ONNX optimization script for better performance
 python Tests_Fixes/fix_onnx_runtime.py
@@ -226,6 +299,26 @@ This unified launcher:
 - Launches the voice assistant in the foreground
 - Handles cleanup when you exit (Ctrl+C)
 - Preserves all logging output for debugging
+
+**Configuring your conda environment:**
+
+The launcher uses environment variables for flexibility:
+```bash
+# Set your conda environment name (default: howdy310)
+export HOWDYVOX_CONDA_ENV="your-env-name"
+
+# Set your conda path (default: /opt/anaconda3/bin/conda)
+export CONDA_PATH="/path/to/your/conda"
+
+# Then run the launcher
+python launch_scripts_backup/launch_howdy_terminal.py
+```
+
+Or edit the script directly at the top:
+```python
+CONDA_ENV = "your-env-name"  # Change from default "howdy310"
+CONDA_PATH = "/path/to/conda"  # Change if needed
+```
 
 ### Alternative: Manual Two-Terminal Approach
 ```bash

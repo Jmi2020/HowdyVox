@@ -21,7 +21,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - SUPERVISOR - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/Users/Shared/Coding/HowdyTTS/supervisor.log'),
+        logging.FileHandler('/Users/Shared/Coding/HowdyVox/supervisor.log'),
         logging.StreamHandler()
     ]
 )
@@ -31,7 +31,7 @@ class VoiceAssistantSupervisor:
         self.process = None
         self.restart_count = 0
         self.running = True
-        self.script_path = '/Users/Shared/Coding/HowdyTTS/run_voice_assistant.py'
+        self.script_path = '/Users/Shared/Coding/HowdyVox/run_voice_assistant.py'
         
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -59,19 +59,19 @@ class VoiceAssistantSupervisor:
         """Start the voice assistant process - simple and reliable approach"""
         try:
             print(f"{Fore.CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{Fore.RESET}")
-            print(f"{Fore.GREEN}SUPERVISOR: Starting HowdyTTS Voice Assistant (attempt #{self.restart_count + 1})...{Fore.RESET}")
+            print(f"{Fore.GREEN}SUPERVISOR: Starting HowdyVox Voice Assistant (attempt #{self.restart_count + 1})...{Fore.RESET}")
             print(f"{Fore.CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{Fore.RESET}")
             logging.info(f"Starting voice assistant process (restart #{self.restart_count})")
             
             # Simple approach - just run the command and let it operate normally
             # Use os.system for simplest possible execution that preserves terminal behavior
-            conda_cmd = f'cd /Users/Shared/Coding/HowdyTTS && /opt/anaconda3/bin/conda run -n howdy310 python run_voice_assistant.py'
+            conda_cmd = f'cd /Users/Shared/Coding/HowdyVox && /opt/anaconda3/bin/conda run -n howdy310 python run_voice_assistant.py'
             
             # Start the process in the background but keep terminal control
             self.process = subprocess.Popen(
                 conda_cmd,
                 shell=True,
-                cwd='/Users/Shared/Coding/HowdyTTS'
+                cwd='/Users/Shared/Coding/HowdyVox'
             )
             
             print(f"{Fore.GREEN}SUPERVISOR: ✅ Voice assistant started (PID: {self.process.pid})!{Fore.RESET}")
@@ -122,7 +122,7 @@ class VoiceAssistantSupervisor:
     def run(self):
         """Main supervisor loop"""
         print(f"{Fore.CYAN}╔══════════════════════════════════════════════════════════════════════════╗{Fore.RESET}")
-        print(f"{Fore.CYAN}║                    🤠 HowdyTTS Voice Assistant Supervisor               ║{Fore.RESET}")
+        print(f"{Fore.CYAN}║                    🤠 HowdyVox Voice Assistant Supervisor               ║{Fore.RESET}")
         print(f"{Fore.CYAN}║                          Infinite Operation Mode                        ║{Fore.RESET}")
         print(f"{Fore.CYAN}╚══════════════════════════════════════════════════════════════════════════╝{Fore.RESET}")
         print(f"{Fore.YELLOW}Press Ctrl+C to stop the supervisor{Fore.RESET}")
@@ -186,7 +186,7 @@ class VoiceAssistantSupervisor:
                 self.process.wait()
         
         print(f"{Fore.CYAN}╔══════════════════════════════════════════════════════════════════════════╗{Fore.RESET}")
-        print(f"{Fore.CYAN}║                    🤠 HowdyTTS Supervisor Stopped                       ║{Fore.RESET}")
+        print(f"{Fore.CYAN}║                    🤠 HowdyVox Supervisor Stopped                       ║{Fore.RESET}")
         print(f"{Fore.CYAN}║                     Total Restarts: {self.restart_count:<3}                           ║{Fore.RESET}")
         print(f"{Fore.CYAN}╚══════════════════════════════════════════════════════════════════════════╝{Fore.RESET}")
         logging.info(f"Voice Assistant Supervisor stopped after {self.restart_count} restarts")

@@ -61,7 +61,7 @@ class DirectLauncher:
         return proc
     
     def run(self):
-        print("🤠 HowdyTTS Direct Launcher")
+        print("🤠 HowdyVox Direct Launcher")
         print("=" * 50)
         
         # Start FastAPI

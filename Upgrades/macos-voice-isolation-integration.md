@@ -1,8 +1,8 @@
-# macOS Native Voice Isolation Integration Guide for HowdyTTS
+# macOS Native Voice Isolation Integration Guide for HowdyVox
 
 ## Executive Summary
 
-This guide provides a complete implementation for integrating macOS's native Voice Isolation API into HowdyTTS. This will leverage the Neural Engine on Apple Silicon Macs and the optimized DSP on Intel Macs to provide superior noise suppression with minimal CPU usage and latency.
+This guide provides a complete implementation for integrating macOS's native Voice Isolation API into HowdyVox. This will leverage the Neural Engine on Apple Silicon Macs and the optimized DSP on Intel Macs to provide superior noise suppression with minimal CPU usage and latency.
 
 ## Prerequisites
 
@@ -974,7 +974,7 @@ def test_performance():
 def main():
     """Run all tests."""
     print(f"{Fore.CYAN}{'='*60}{Fore.RESET}")
-    print(f"{Fore.CYAN}macOS Voice Isolation Test Suite for HowdyTTS{Fore.RESET}")
+    print(f"{Fore.CYAN}macOS Voice Isolation Test Suite for HowdyVox{Fore.RESET}")
     print(f"{Fore.CYAN}{'='*60}{Fore.RESET}")
     
     # Check macOS version
@@ -1039,7 +1039,7 @@ Create `setup_mac_voice_isolation.sh`:
 ```bash
 #!/bin/bash
 
-echo "Setting up macOS Voice Isolation for HowdyTTS"
+echo "Setting up macOS Voice Isolation for HowdyVox"
 echo "==========================================="
 
 # Check macOS version
@@ -1177,12 +1177,12 @@ config = VoiceIsolationConfig(
 
 ## Conclusion
 
-This implementation provides HowdyTTS with state-of-the-art voice isolation using macOS's Neural Engine. The system offers:
+This implementation provides HowdyVox with state-of-the-art voice isolation using macOS's Neural Engine. The system offers:
 
 - **Superior noise suppression** compared to RNNoise or spectral gating
 - **Minimal CPU usage** (typically under 2%)
 - **Low latency** (5-15ms)
 - **Automatic gain control** for consistent volume
-- **Seamless integration** with existing HowdyTTS architecture
+- **Seamless integration** with existing HowdyVox architecture
 
 The implementation gracefully falls back to intelligent VAD or RNNoise if voice isolation is unavailable, ensuring the system works across all platforms while taking full advantage of Mac hardware when available.

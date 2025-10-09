@@ -143,7 +143,7 @@ except Exception as e:
     os.remove("test_onnx_import.py")
     
     print("\n===== ONNX Runtime Installation Complete =====")
-    print("\nNext step: Try running HowdyTTS with:")
+    print("\nNext step: Try running HowdyVox with:")
     print("./run_howdy.sh")
 
 if __name__ == "__main__":

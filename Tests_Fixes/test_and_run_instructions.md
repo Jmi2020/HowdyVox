@@ -1,6 +1,6 @@
 # Kokoro ONNX Setup and Testing Instructions
 
-This document provides instructions for setting up and testing the Kokoro ONNX TTS integration in HowdyTTS.
+This document provides instructions for setting up and testing the Kokoro ONNX TTS integration in HowdyVox.
 
 ## Setup Instructions
 
@@ -36,7 +36,7 @@ The script requires:
 - soundfile
 - other dependencies listed in requirements.txt
 
-### 3. Configure HowdyTTS to Use Kokoro ONNX
+### 3. Configure HowdyVox to Use Kokoro ONNX
 
 Edit `voice_assistant/config.py` to use the Kokoro ONNX model:
 

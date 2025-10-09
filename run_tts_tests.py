@@ -13,7 +13,7 @@ def main():
     
     # Check if we're in the right directory
     if not os.path.exists("voice_assistant/text_to_speech.py"):
-        print("❌ Error: Please run this script from the HowdyTTS root directory")
+        print("❌ Error: Please run this script from the HowdyVox root directory")
         print("   Current directory:", os.getcwd())
         sys.exit(1)
     

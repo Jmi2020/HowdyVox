@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Fix script for HowdyTTS on M3 Mac Studio
-# This script applies all necessary fixes to make HowdyTTS work on M3 Apple Silicon Mac
+# Fix script for HowdyVox on M3 Mac Studio
+# This script applies all necessary fixes to make HowdyVox work on M3 Apple Silicon Mac
 
-echo "===== HowdyTTS M3 Mac Fix Script ====="
-echo "This script will fix issues with running HowdyTTS on M3 Mac Studio"
+echo "===== HowdyVox M3 Mac Fix Script ====="
+echo "This script will fix issues with running HowdyVox on M3 Mac Studio"
 
 # Ensure we're in a conda environment
 if [[ -z "$CONDA_PREFIX" ]]; then
@@ -201,7 +201,7 @@ python test_kokoro_simple.py
 
 # Summary
 echo -e "\n===== Fix script complete ====="
-echo "If the test was successful, you can now run HowdyTTS with:"
+echo "If the test was successful, you can now run HowdyVox with:"
 echo "./run_howdy.sh"
 echo ""
 echo "If there were still errors, please run the standalone fix script:"

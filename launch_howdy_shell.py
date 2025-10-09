@@ -25,7 +25,7 @@ def cleanup(sig=None, frame=None):
 
 signal.signal(signal.SIGINT, cleanup)
 
-print("🤠 HowdyTTS Shell Launcher")
+print("🤠 HowdyVox Shell Launcher")
 print("=" * 50)
 
 # Change to script directory

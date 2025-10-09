@@ -100,7 +100,7 @@ void setup() {
   delay(1000);
   
   Serial.begin(115200);
-  Serial.println("\nHowdyTTS Matrix Controller (Waveshare Version)");
+  Serial.println("\nHowdyVox Matrix Controller (Waveshare Version)");
   
   // Initialize the matrix with EXACT Waveshare settings
   matrix.begin();
@@ -236,11 +236,11 @@ void displayScrollingText(String text, uint16_t color, int scrollCount) {
 
 void handleRoot() {
   String html = "<html><head><meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<title>HowdyTTS LED Matrix</title>";
+  html += "<title>HowdyVox LED Matrix</title>";
   html += "<style>body{font-family:Arial;text-align:center;margin-top:50px;background-color:#f0f0f0;}";
   html += "button{background-color:#4CAF50;color:white;padding:10px 24px;border:none;border-radius:4px;margin:5px;cursor:pointer;}";
   html += "button:hover{background-color:#45a049;}</style></head><body>";
-  html += "<h1>HowdyTTS LED Matrix Control</h1>";
+  html += "<h1>HowdyVox LED Matrix Control</h1>";
   html += "<h2>Current state: " + currentState + "</h2>";
   html += "<h3>Message: \"" + currentMessage + "\"</h3>";
   html += "<h3>IP: " + WiFi.localIP().toString() + " (" + hostname + ".local)</h3>";
