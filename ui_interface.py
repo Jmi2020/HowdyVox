@@ -225,10 +225,12 @@ class HowdyVoxUI:
             return
 
         # Status updates - updated to match current output format
-        if 'initialized' in line.lower() or 'Say \'Hey Howdy\'' in line or 'wake word detection' in line.lower():
+        if 'HowdyVox initialized' in line and 'Say \'Hey Howdy\'' in line:
+            # Only show this once by checking if it's the exact initialization message
             self.queue_status_update('waiting')
-            if 'initialized' in line.lower():
-                self.queue_message("HowdyVox initialized. Say 'Hey Howdy' to start!", 'system')
+            self.queue_message("HowdyVox initialized. Say 'Hey Howdy' to start!", 'system')
+        elif 'wake word detection active' in line.lower():
+            self.queue_status_update('waiting')
         elif 'Wake word detected' in line or 'Listening...' in line:
             self.queue_status_update('listening')
         elif 'Thinking...' in line:

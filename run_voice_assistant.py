@@ -593,10 +593,13 @@ def main():
             # Check if the user wants to exit the program (complete shutdown)
             if "shut down howdy program" in user_input.lower() or "shut down the howdy program" in user_input.lower() or "code phrase exit" in user_input.lower():
                 print(Fore.YELLOW + "Goodbye, partner! Happy trails!" + Fore.RESET)
+                print(Fore.CYAN + "Voice assistant stopped" + Fore.RESET)
                 # Set matrix to waiting state before exiting
                 update_led_state('waiting')
+                # Clean up before exit
+                cleanup_all_detectors()
                 stop_signal.set()
-                break
+                sys.exit(0)
             
             # Check if we should end the current conversation
             if conversation_active.is_set() and check_end_conversation(user_input):
