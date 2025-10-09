@@ -24,16 +24,29 @@ try:
     # Try to load AudioToolbox framework functions
     # AudioUnitSetProperty and related functions are C functions from AudioToolbox
     # They need to be loaded via objc.loadBundle or ctypes
+    AUDIO_TOOLBOX_AVAILABLE = False
+    AudioUnitSetProperty = None
+    kAudioUnitScope_Global = None
+
     try:
+        # Load AudioToolbox framework bundle
+        bundle_dict = {}
         objc.loadBundle(
             'AudioToolbox',
-            globals(),
+            bundle_dict,
             bundle_path='/System/Library/Frameworks/AudioToolbox.framework'
         )
-        AUDIO_TOOLBOX_AVAILABLE = True
+
+        # Check if key functions are available
+        if 'AudioUnitSetProperty' in bundle_dict:
+            AudioUnitSetProperty = bundle_dict['AudioUnitSetProperty']
+            kAudioUnitScope_Global = bundle_dict.get('kAudioUnitScope_Global', 0)
+            AUDIO_TOOLBOX_AVAILABLE = True
+            logging.info("AudioToolbox framework functions loaded successfully")
+        else:
+            logging.warning("AudioToolbox framework loaded but functions not found")
     except Exception as e:
         logging.warning(f"AudioToolbox framework functions not available: {e}")
-        AUDIO_TOOLBOX_AVAILABLE = False
 
     PYOBJC_AVAILABLE = True
 except ImportError as e:
@@ -194,7 +207,7 @@ if PYOBJC_AVAILABLE:
             Returns:
                 bool: Success status
             """
-            if not AUDIO_TOOLBOX_AVAILABLE:
+            if not AUDIO_TOOLBOX_AVAILABLE or AudioUnitSetProperty is None:
                 logging.debug(f"AudioToolbox not available, skipping property {property_id}")
                 return False
 
@@ -203,10 +216,11 @@ if PYOBJC_AVAILABLE:
                 value_data = struct.pack('I', value)
 
                 # Set the property using AudioToolbox
+                scope = kAudioUnitScope_Global if kAudioUnitScope_Global is not None else 0
                 result = AudioUnitSetProperty(
                     audio_unit,
                     property_id,
-                    kAudioUnitScope_Global,
+                    scope,
                     0,  # Element
                     value_data,
                     len(value_data)
