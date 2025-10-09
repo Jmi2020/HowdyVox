@@ -35,9 +35,9 @@ class MacAudioRecorder:
         self.chunk_duration_ms = 20  # 20ms chunks
         self.chunk_size = int(self.sample_rate * self.chunk_duration_ms / 1000)
         
-        # Initialize voice isolation
+        # Initialize voice isolation (will use device's native format)
         vi_config = VoiceIsolationConfig(
-            sample_rate=self.sample_rate,
+            sample_rate=self.sample_rate,  # Initial preference
             channels=self.channels,
             quality=kAUVoiceIOProperty_VoiceProcessingQuality_High,
             enable_agc=True,
@@ -45,12 +45,22 @@ class MacAudioRecorder:
             buffer_size=self.chunk_size
         )
         self.voice_isolation = MacVoiceIsolation(vi_config)
-        
-        # Initialize VAD (works on clean audio from voice isolation)
+
+        # Update sample rate to match what voice isolation actually uses
+        # (it will use the device's native format, e.g., 44100 Hz)
+        self.voice_isolation_sample_rate = self.voice_isolation.config.sample_rate
+        logging.info(f"Voice isolation using {self.voice_isolation_sample_rate} Hz")
+
+        # Silero VAD only supports 8000 or 16000 Hz
+        # We'll use 16000 Hz and resample if needed
+        self.vad_sample_rate = 16000
         self.vad = IntelligentVAD(
-            sample_rate=self.sample_rate,
+            sample_rate=self.vad_sample_rate,
             chunk_duration_ms=self.chunk_duration_ms
         )
+
+        # Update chunk size for resampling calculations
+        self.vad_chunk_size = int(self.vad_sample_rate * self.chunk_duration_ms / 1000)
         
         # Initialize utterance detector
         self.utterance_detector = IntelligentUtteranceDetector()
@@ -132,11 +142,23 @@ class MacAudioRecorder:
                 if processed_audio is None:
                     continue
                 
-                # Always add to pre-speech buffer
+                # Resample for VAD if needed (Silero only supports 8k or 16k Hz)
+                if self.voice_isolation_sample_rate != self.vad_sample_rate:
+                    # Simple linear resampling
+                    num_samples_out = int(len(processed_audio) * self.vad_sample_rate / self.voice_isolation_sample_rate)
+                    resampled_audio = np.interp(
+                        np.linspace(0, len(processed_audio), num_samples_out),
+                        np.arange(len(processed_audio)),
+                        processed_audio
+                    ).astype(np.float32)
+                else:
+                    resampled_audio = processed_audio
+
+                # Always add original (non-resampled) to pre-speech buffer
                 pre_speech_buffer.append(processed_audio)
-                
-                # Detect speech using VAD
-                is_speech, confidence = self.vad.process_chunk(processed_audio)
+
+                # Detect speech using VAD (with resampled audio)
+                is_speech, confidence = self.vad.process_chunk(resampled_audio)
                 
                 # Handle speech detection
                 if is_speech and not recording_started:
@@ -205,33 +227,33 @@ class MacAudioRecorder:
             
             # Apply wake word trimming if needed
             if is_wake_word_response:
-                # Trim first 500ms
-                trim_samples = int(0.5 * self.sample_rate)
+                # Trim first 500ms (using voice isolation sample rate)
+                trim_samples = int(0.5 * self.voice_isolation_sample_rate)
                 if len(audio_data) > trim_samples:
                     audio_data = audio_data[trim_samples:]
                     logging.info("Trimmed activation sound")
-            
+
             # Convert float32 to int16
             audio_int16 = (audio_data * 32768).astype(np.int16)
-            
+
             # Save as WAV first
             wav_path = file_path.replace('.mp3', '.wav')
             with wave.open(wav_path, 'wb') as wf:
                 wf.setnchannels(self.channels)
                 wf.setsampwidth(2)  # 16-bit
-                wf.setframerate(self.sample_rate)
+                wf.setframerate(self.voice_isolation_sample_rate)
                 wf.writeframes(audio_int16.tobytes())
-            
+
             # Convert to MP3 if requested
             if file_path.endswith('.mp3'):
                 # Resample to 16kHz for compatibility if needed
                 audio_segment = AudioSegment.from_wav(wav_path)
-                if self.sample_rate != 16000:
+                if self.voice_isolation_sample_rate != 16000:
                     audio_segment = audio_segment.set_frame_rate(16000)
                 audio_segment.export(file_path, format="mp3", bitrate="128k")
                 os.remove(wav_path)
-            
-            duration = len(audio_data) / self.sample_rate
+
+            duration = len(audio_data) / self.voice_isolation_sample_rate
             logging.info(f"Recording saved: {file_path} (duration: {duration:.2f}s)")
             
             # Log voice isolation statistics
