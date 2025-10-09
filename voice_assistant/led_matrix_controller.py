@@ -38,36 +38,23 @@ class LEDMatrixController:
     def _check_connection(self):
         """Check if the ESP32 is reachable and working."""
         try:
-            # Print debug information first
-            print(f"{Fore.CYAN}DEBUG: Checking connection to ESP32 at {self.esp32_ip}{Fore.RESET}")
-            print(f"{Fore.CYAN}DEBUG: State URL: {self.state_url}{Fore.RESET}")
-            print(f"{Fore.CYAN}DEBUG: Speak URL: {self.speak_url}{Fore.RESET}")
-            
-            # Send a test request
-            response = requests.post(self.state_url, data={"state": "waiting"}, timeout=5.0)
-            print(f"{Fore.CYAN}DEBUG: Connection test response code: {response.status_code}{Fore.RESET}")
-            
+            # Send a test request (silent - no debug prints)
+            response = requests.post(self.state_url, data={"state": "waiting"}, timeout=2.0)
+
             if response.status_code == 200:
                 # Set current state
                 self.current_state = "waiting"
-                logging.info(f"{Fore.GREEN}Successfully connected to ESP32 LED Matrix at {self.esp32_ip}{Fore.RESET}")
+                logging.info(f"{Fore.GREEN}✓ ESP32 LED Matrix connected at {self.esp32_ip}{Fore.RESET}")
+                print(f"{Fore.GREEN}✓ ESP32 LED Matrix connected{Fore.RESET}")
                 return True
             else:
-                logging.error(f"{Fore.RED}Failed to connect to ESP32 LED Matrix. Status code: {response.status_code}{Fore.RESET}")
+                # Connection failed - disable silently
+                logging.debug(f"ESP32 LED Matrix connection failed (status {response.status_code})")
                 self.enabled = False
                 return False
         except Exception as e:
-            logging.error(f"{Fore.RED}Failed to connect to ESP32 LED Matrix: {e}{Fore.RESET}")
-            self.enabled = False
-            return False
-            
-            # Log success
-            logging.info(f"{Fore.GREEN}Successfully connected to ESP32 LED Matrix at {self.esp32_ip}{Fore.RESET}")
-            print(f"{Fore.GREEN}Successfully connected to ESP32 LED Matrix at {self.esp32_ip}{Fore.RESET}")
-            return True
-        except Exception as e:
-            logging.error(f"{Fore.RED}Failed to connect to ESP32 LED Matrix: {e}{Fore.RESET}")
-            print(f"{Fore.RED}Failed to connect to ESP32 LED Matrix: {e}{Fore.RESET}")
+            # Connection failed - disable silently (DEBUG level only)
+            logging.debug(f"ESP32 LED Matrix not reachable: {e}")
             self.enabled = False
             return False
     
