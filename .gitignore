@@ -106,5 +106,8 @@ Tests_Fixes/
 howdy_Opt.md
 **/.claude/settings.local.json
 
+# Session planning documents
+ERROR_FIX_PLAN.md
+
 # Claude Code documentation (project-specific)
 CLAUDE.md
