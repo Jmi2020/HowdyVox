@@ -181,9 +181,9 @@ if PYOBJC_AVAILABLE:
                     kAUVoiceIOProperty_BypassVoiceProcessing,
                     0  # 0 = Don't bypass (enable processing)
                 )
-            
+
                 if not success:
-                    logging.warning("Failed to enable voice processing")
+                    logging.debug("Voice processing not available (AudioToolbox functions missing)")
             
                 # Set voice processing quality
                 success = self._set_audio_unit_property(

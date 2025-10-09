@@ -76,13 +76,16 @@ def update_led_state(state, text=None):
         _last_led_state = None
 
     if _last_led_state != state:
-        state_msg = f"[{state.upper()}]"
+        # Print state changes to UI (always visible)
         if state == 'speaking' and text:
-            # Show first 50 chars of response
-            preview = text[:50] + ('...' if len(text) > 50 else '')
-            logging.debug(f"{color}{state_msg} {preview}{Fore.RESET}")
-        else:
-            logging.debug(f"{color}{state_msg}{Fore.RESET}")
+            # Show Howdy's full response
+            print(f"{Fore.CYAN}Howdy:{Fore.RESET} {text}")
+        elif state == 'thinking':
+            print(f"{color}Thinking...{Fore.RESET}")
+        elif state == 'listening':
+            # Don't print listening state - it's redundant with "Listening..." already printed
+            pass
+        # Other states (waiting, ending) are silent in UI
         _last_led_state = state
 
     # Update LED matrix only if available and enabled
@@ -642,7 +645,7 @@ def main():
                 
             # Generate a response using Ollama
             response_text = generate_response(Config.RESPONSE_MODEL, response_api_key, chat_history, Config.LOCAL_MODEL_PATH)
-            logging.info(Fore.CYAN + "Response: " + response_text + Fore.RESET)
+            # Response will be printed by update_led_state('speaking', response_text)
 
             # Append the assistant's response to the chat history
             chat_history.append({"role": "assistant", "content": response_text})
