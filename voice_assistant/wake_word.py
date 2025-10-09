@@ -10,6 +10,9 @@ from dotenv import load_dotenv
 import speech_recognition as sr
 import threading
 import queue
+import numpy as np
+from .audio_source_manager import get_audio_manager, AudioSourceType
+from .esp32_p4_protocol import ESP32P4ProtocolParser
 
 # Initialize colorama
 init(autoreset=True)
@@ -37,16 +40,18 @@ class WakeWordDetector:
     Listens for the custom wake word "Hey howdy" using a provided model file.
     """
     
-    def __init__(self, wake_word_callback, sensitivity=0.5):
+    def __init__(self, wake_word_callback, sensitivity=0.5, use_wireless_audio=False):
         """
         Initialize the wake word detector.
         
         Args:
             wake_word_callback: Function to call when wake word is detected
             sensitivity: Detection sensitivity (0-1), higher is more sensitive
+            use_wireless_audio: Whether to use wireless audio instead of local microphone
         """
         self.wake_word_callback = wake_word_callback
         self.sensitivity = sensitivity
+        self.use_wireless_audio = use_wireless_audio
         self.porcupine = None
         self.audio = None
         self.is_running = False
@@ -55,8 +60,26 @@ class WakeWordDetector:
         self.detection_thread = None
         self.detection_queue = queue.Queue()
         
+        # NEW: Wireless audio integration
+        self.audio_source_manager = None
+        self.wireless_audio_buffer = queue.Queue(maxsize=100)
+        self.protocol_parser = None
+        self._wireless_pcm_residual = np.zeros(0, dtype=np.int16)
+        
         # Register this instance for cleanup
         DETECTOR_REGISTRY.append(self)
+        
+        # NEW: Set up wireless audio if requested
+        if self.use_wireless_audio:
+            self.audio_source_manager = get_audio_manager()
+            if (self.audio_source_manager and 
+                self.audio_source_manager.get_current_source() == AudioSourceType.WIRELESS):
+                logging.info("Wake word detector will use wireless audio source")
+                self.protocol_parser = ESP32P4ProtocolParser()
+                self._wireless_pcm_residual = np.zeros(0, dtype=np.int16)
+            else:
+                logging.warning("Wireless audio requested but not available, falling back to local")
+                self.use_wireless_audio = False
         
         # Limit the number of instances to prevent memory issues
         while len(DETECTOR_REGISTRY) > MAX_DETECTORS:
@@ -123,45 +146,156 @@ class WakeWordDetector:
             raise
         
     def _detection_worker(self):
-        """Worker thread that processes audio in the background"""
+        """Worker thread that processes audio from local or wireless source"""
         try:
-            # Create audio stream
-            self.audio_stream = self.audio.open(
-                rate=self.porcupine.sample_rate,
-                channels=1,
-                format=pyaudio.paInt16,
-                input=True,
-                frames_per_buffer=self.porcupine.frame_length
-            )
-            
-            logging.info(f"{Fore.GREEN}Wake word detector started. Listening...{Fore.RESET}")
-            
-            # Main detection loop
-            while not self.stop_event.is_set():
-                try:
-                    # Read audio frame
-                    pcm = self.audio_stream.read(self.porcupine.frame_length, exception_on_overflow=False)
-                    # Convert to the format Porcupine expects
-                    pcm = struct.unpack_from("h" * self.porcupine.frame_length, pcm)
-                    
-                    # Process with Porcupine
-                    keyword_index = self.porcupine.process(pcm)
-                    
-                    # If wake word detected (keyword_index >= 0)
-                    if keyword_index >= 0:
-                        logging.info(f"{Fore.CYAN}Wake word detected!{Fore.RESET}")
-                        self.detection_queue.put(True)
-                        # Brief pause to prevent multiple detections
-                        time.sleep(0.5)
-                except Exception as e:
-                    if not self.stop_event.is_set():
-                        logging.error(f"Error processing audio frame: {e}")
-                    time.sleep(0.1)  # Short sleep to avoid tight loop on error
-        
+            if self.use_wireless_audio and self.audio_source_manager:
+                # Use wireless audio source
+                self._wireless_detection_loop()
+            else:
+                # Use existing local microphone detection
+                self._local_detection_loop()
         except Exception as e:
             logging.error(f"Error in detection worker: {e}")
         finally:
             self.cleanup_audio_stream()
+    
+    def _local_detection_loop(self):
+        """Original local microphone detection logic"""
+        # Create audio stream
+        self.audio_stream = self.audio.open(
+            rate=self.porcupine.sample_rate,
+            channels=1,
+            format=pyaudio.paInt16,
+            input=True,
+            frames_per_buffer=self.porcupine.frame_length
+        )
+        
+        logging.info(f"{Fore.GREEN}Wake word detector started (local mic). Listening...{Fore.RESET}")
+        
+        # Main detection loop
+        while not self.stop_event.is_set():
+            try:
+                # Read audio frame
+                pcm = self.audio_stream.read(self.porcupine.frame_length, exception_on_overflow=False)
+                # Convert to the format Porcupine expects
+                pcm = struct.unpack_from("h" * self.porcupine.frame_length, pcm)
+                
+                # Process with Porcupine
+                keyword_index = self.porcupine.process(pcm)
+                
+                # If wake word detected (keyword_index >= 0)
+                if keyword_index >= 0:
+                    logging.info(f"{Fore.CYAN}Wake word detected!{Fore.RESET}")
+                    self.detection_queue.put(True)
+                    # Brief pause to prevent multiple detections
+                    time.sleep(0.5)
+            except Exception as e:
+                if not self.stop_event.is_set():
+                    logging.error(f"Error processing audio frame: {e}")
+                time.sleep(0.1)  # Short sleep to avoid tight loop on error
+    
+    def _wireless_detection_loop(self):
+        """NEW: Wireless audio detection using audio source manager"""
+        logging.info(f"{Fore.GREEN}Wake word detector started (wireless). Listening...{Fore.RESET}")
+        
+        # Set up wireless audio callback
+        if hasattr(self.audio_source_manager, '_network_source') and self.audio_source_manager._network_source:
+            # Get the wireless audio server
+            audio_server = self.audio_source_manager._network_source.audio_server
+            
+            # Register for wireless audio packets
+            original_callback = audio_server.audio_callback if hasattr(audio_server, 'audio_callback') else None
+            
+            def wireless_audio_callback(audio_data, raw_packet_data=None, source_addr=None):
+                # Call original callback first if it exists
+                if original_callback:
+                    try:
+                        original_callback(audio_data, raw_packet_data, source_addr)
+                    except TypeError:
+                        try:
+                            original_callback(audio_data)
+                        except:
+                            pass
+
+                # Process audio for wake word detection
+                try:
+                    pcm_samples = None
+
+                    # Prefer PCM decoded from the raw ESP32-P4 packet
+                    if raw_packet_data is not None and self.protocol_parser is not None:
+                        try:
+                            parsed_packet = self.protocol_parser.parse_packet(
+                                raw_packet_data,
+                                source_addr if source_addr else ("0.0.0.0", 0)
+                            )
+                            if parsed_packet and parsed_packet.audio_data is not None:
+                                pcm_samples = np.asarray(parsed_packet.audio_data, dtype=np.int16).flatten()
+                        except Exception as parse_error:
+                            logging.debug(f"Wireless packet parse error: {parse_error}")
+
+                    # Fallback to the audio array provided by the server
+                    if pcm_samples is None:
+                        if isinstance(audio_data, np.ndarray):
+                            if audio_data.dtype != np.int16:
+                                pcm_samples = (audio_data * 32767).astype(np.int16)
+                            else:
+                                pcm_samples = audio_data.astype(np.int16, copy=False)
+                        else:
+                            pcm_samples = None
+
+                    if pcm_samples is None or pcm_samples.size == 0:
+                        return
+
+                    # Flatten multi-channel audio if needed
+                    if pcm_samples.ndim > 1:
+                        pcm_samples = pcm_samples.flatten()
+
+                    # Prepend any residual samples from the previous callback
+                    if self._wireless_pcm_residual.size:
+                        pcm_samples = np.concatenate((self._wireless_pcm_residual, pcm_samples))
+                        self._wireless_pcm_residual = np.zeros(0, dtype=np.int16)
+
+                    frame_length = self.porcupine.frame_length
+                    sample_count = pcm_samples.size
+                    offset = 0
+
+                    while offset + frame_length <= sample_count:
+                        frame = pcm_samples[offset:offset + frame_length]
+                        if not self.wireless_audio_buffer.full():
+                            # Copy to avoid referencing the shared buffer
+                            self.wireless_audio_buffer.put(frame.copy())
+                        offset += frame_length
+
+                    # Preserve any leftover samples for the next callback
+                    if offset < sample_count:
+                        self._wireless_pcm_residual = pcm_samples[offset:].copy()
+                except Exception as e:
+                    logging.error(f"Error in wireless audio callback: {e}")
+
+            # Set our callback
+            audio_server.set_audio_callback(wireless_audio_callback)
+        
+        # Main wireless detection loop
+        while not self.stop_event.is_set():
+            try:
+                # Get audio from wireless buffer
+                audio_chunk = self.wireless_audio_buffer.get(timeout=0.5)
+                
+                # Process with Porcupine
+                keyword_index = self.porcupine.process(audio_chunk)
+                
+                # If wake word detected
+                if keyword_index >= 0:
+                    logging.info(f"{Fore.CYAN}Wake word detected on wireless audio!{Fore.RESET}")
+                    self.detection_queue.put(True)
+                    time.sleep(0.5)  # Brief pause to prevent multiple detections
+                    
+            except queue.Empty:
+                continue  # Timeout, just continue
+            except Exception as e:
+                if not self.stop_event.is_set():
+                    logging.error(f"Error processing wireless audio frame: {e}")
+                time.sleep(0.1)
     
     def cleanup_audio_stream(self):
         """Clean up just the audio stream"""
@@ -264,13 +398,14 @@ class SpeechRecognitionWakeWord:
     Listens for the wake phrase "Hey howdy" and triggers a callback when detected.
     """
     
-    def __init__(self, wake_word_callback, wake_phrase="hey howdy"):
+    def __init__(self, wake_word_callback, wake_phrase="hey howdy", use_wireless_audio=False):
         """
         Initialize the wake word detector.
         
         Args:
             wake_word_callback: Function to call when wake word is detected
             wake_phrase: The wake phrase to listen for (default: "hey howdy")
+            use_wireless_audio: Whether to use wireless audio instead of local microphone
         """
         self.wake_word_callback = wake_word_callback
         self.wake_phrase = wake_phrase.lower()
@@ -278,10 +413,16 @@ class SpeechRecognitionWakeWord:
         self.is_running = False
         self.stop_event = threading.Event()
         self.detection_thread = None
+        self.use_wireless_audio = use_wireless_audio  # NEW
         
         # Set a lower energy threshold to pick up more speech
         self.recognizer.energy_threshold = 500
         self.recognizer.dynamic_energy_threshold = True
+        
+        # NEW: Wireless audio integration
+        if self.use_wireless_audio:
+            self.audio_source_manager = get_audio_manager()
+            logging.info("SpeechRecognition wake word detector will use wireless audio")
         
     def _detection_worker(self):
         """Worker thread for wake word detection"""

@@ -47,6 +47,28 @@ is_first_turn_after_wake = threading.Event()  # Flag to track if this is the fir
 network_audio_source = None  # Wireless audio source instance
 audio_source_manager = None  # Audio source manager instance
 
+
+def _is_wireless_audio_active() -> bool:
+    """Return True when the ESP32-P4 wireless pipeline is connected and selected."""
+    if not audio_source_manager:
+        return False
+
+    try:
+        network_source = getattr(audio_source_manager, "_network_source", None)
+        if not network_source:
+            return False
+
+        if audio_source_manager.get_current_source() != AudioSourceType.WIRELESS:
+            return False
+
+        if hasattr(network_source, "is_esp32p4_connected"):
+            return network_source.is_esp32p4_connected()
+    except Exception as exc:
+        logging.debug(f"Wireless audio check failed: {exc}")
+
+    # If we cannot definitively confirm, treat as inactive so we fall back gracefully.
+    return False
+
 def check_end_conversation(text):
     """
     Use simple pattern matching to determine if the user wants to end the conversation.
@@ -135,14 +157,27 @@ def safe_start_wake_word_detection():
             except Exception as e:
                 logging.error(f"Error stopping existing wake word detector: {e}")
         
+        # NEW: Check if we should use wireless audio for wake word detection
+        use_wireless = (audio_source_manager and 
+                       audio_source_manager.get_current_source() == AudioSourceType.WIRELESS)
+        
         # Create a new detector
         print(Fore.CYAN + "Starting wake word detection..." + Fore.RESET)
+        if use_wireless:
+            print(Fore.YELLOW + "Using wireless audio for wake word detection" + Fore.RESET)
+        
         try:
-            wake_word_detector = WakeWordDetector(wake_word_callback=handle_wake_word)
+            wake_word_detector = WakeWordDetector(
+                wake_word_callback=handle_wake_word,
+                use_wireless_audio=use_wireless  # NEW parameter
+            )
             print(Fore.GREEN + "Using Porcupine for wake word detection" + Fore.RESET)
         except Exception as e:
             print(Fore.YELLOW + f"Porcupine not available ({e}), falling back to SpeechRecognition" + Fore.RESET)
-            wake_word_detector = SpeechRecognitionWakeWord(wake_word_callback=handle_wake_word)
+            wake_word_detector = SpeechRecognitionWakeWord(
+                wake_word_callback=handle_wake_word,
+                use_wireless_audio=use_wireless  # NEW parameter
+            )
             print(Fore.GREEN + "Using SpeechRecognition for wake word detection" + Fore.RESET)
         
         # Start the detector
@@ -323,10 +358,6 @@ def main():
                 for idx, device_name, device_ip in devices:
                     print(f"  • {device_name}: {device_ip}")
     
-    # Replace record_audio with manager's version (minimal overhead)
-    global record_audio
-    record_audio = audio_source_manager.record_audio
-    
     # Set up signal handler for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
     
@@ -467,8 +498,29 @@ def main():
             # Check if we need to apply wake word filtering
             apply_wake_word_filter = is_first_turn_after_wake.is_set()
             
-            # Record audio with the appropriate flag
-            recording_success = record_audio(Config.INPUT_AUDIO, is_wake_word_response=apply_wake_word_filter)
+            # Try to refresh wireless selection before recording
+            if audio_source_manager and audio_source_manager.get_current_source() != AudioSourceType.WIRELESS:
+                audio_source_manager.switch_to_wireless(audio_source_manager.target_room)
+
+            if _is_wireless_audio_active():
+                logging.info("📡 Using ESP32-P4 wireless audio recorder")
+                network_source = getattr(audio_source_manager, "_network_source", None)
+                if network_source:
+                    recording_success = network_source.record_audio(
+                        Config.INPUT_AUDIO,
+                        is_wake_word_response=apply_wake_word_filter
+                    )
+                else:
+                    recording_success = audio_source_manager.record_audio(
+                        Config.INPUT_AUDIO,
+                        is_wake_word_response=apply_wake_word_filter
+                    )
+            else:
+                logging.info("🎙️ Wireless audio inactive, falling back to local microphone")
+                recording_success = record_audio(
+                    Config.INPUT_AUDIO,
+                    is_wake_word_response=apply_wake_word_filter
+                )
             
             # Clear the first turn flag after recording
             is_first_turn_after_wake.clear()
@@ -663,11 +715,15 @@ def main():
                         first_chunk_start = time.time()
                         logging.info(f"Starting playback of first chunk after {playback_delay:.3f}s stabilization")
                         
-                        # Play audio locally
-                        play_audio(first_chunk_file)
-                        
+                        wireless_active = _is_wireless_audio_active()
+
+                        # Play audio locally only when not actively using the wireless path
+                        if not wireless_active:
+                            logging.info("🎧 Wireless speaker unavailable – playing TTS locally")
+                            play_audio(first_chunk_file)
+
                         # Send to ESP32-P4 devices if using wireless audio
-                        if audio_source_manager and hasattr(audio_source_manager, '_network_source') and audio_source_manager._network_source:
+                        if wireless_active and hasattr(audio_source_manager, '_network_source'):
                             try:
                                 success = audio_source_manager._network_source.send_tts_audio_to_devices(
                                     first_chunk_file, 
@@ -689,6 +745,7 @@ def main():
                         total_gaps = []
                         
                         while True:
+                            wireless_active = _is_wireless_audio_active()
                             # Get comprehensive generation stats for debugging
                             stats = get_chunk_generation_stats()
                             
@@ -720,11 +777,13 @@ def main():
                                 chunk_play_start = time.time()
                                 logging.info(f"Playing chunk {chunk_index+1} (gap: {inter_chunk_time:.3f}s, queue_size: {stats['queue_size']})")
                                 
-                                # Play audio locally
-                                play_audio(next_chunk)
-                                
+                                # Play audio locally only when not using wireless output
+                                if not wireless_active:
+                                    logging.debug("🎧 Playing follow-up TTS chunk locally")
+                                    play_audio(next_chunk)
+
                                 # Send to ESP32-P4 devices if using wireless audio
-                                if audio_source_manager and hasattr(audio_source_manager, '_network_source') and audio_source_manager._network_source:
+                                if wireless_active and hasattr(audio_source_manager, '_network_source'):
                                     try:
                                         audio_source_manager._network_source.send_tts_audio_to_devices(
                                             next_chunk, 

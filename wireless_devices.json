@@ -6,13 +6,52 @@
       "ip_address": "192.168.86.37",
       "port": 8003,
       "room": "",
-      "last_seen": 1754546783.007107,
-      "is_active": true,
+      "last_seen": 1754704076.619206,
+      "is_active": false,
+      "audio_level": 0.0,
+      "battery_level": -1,
+      "signal_strength": -1,
+      "status": "disconnected"
+    },
+    {
+      "device_id": "ESP32P4_192_168_0_9",
+      "device_type": "ESP32P4_HowdyScreen",
+      "ip_address": "192.168.0.9",
+      "port": 8003,
+      "room": "Unknown",
+      "last_seen": 1755035590.20777,
+      "is_active": false,
+      "audio_level": 0.0,
+      "battery_level": -1,
+      "signal_strength": -1,
+      "status": "disconnected"
+    },
+    {
+      "device_id": "ESP32P4_192_168_86_43",
+      "device_type": "ESP32P4_HowdyScreen",
+      "ip_address": "192.168.86.43",
+      "port": 8003,
+      "room": "Unknown",
+      "last_seen": 1758266790.6656551,
+      "is_active": false,
+      "audio_level": 0.0021607568487524986,
+      "battery_level": -1,
+      "signal_strength": -1,
+      "status": "disconnected"
+    },
+    {
+      "device_id": "esp32p4_192_168_86_43",
+      "device_type": "ESP32P4_HowdyScreen",
+      "ip_address": "192.168.86.43",
+      "port": 8003,
+      "room": "Unknown",
+      "last_seen": 1757994815.1358562,
+      "is_active": false,
       "audio_level": 0.0,
       "battery_level": -1,
       "signal_strength": -1,
       "status": "disconnected"
     }
   ],
-  "last_updated": 1754546798.364683
+  "last_updated": 1758266859.8545868
 }

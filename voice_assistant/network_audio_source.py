@@ -3,6 +3,8 @@
 import logging
 import threading
 import time
+import wave
+import audioop
 import numpy as np
 from typing import Optional, Callable, Tuple
 from collections import deque
@@ -201,25 +203,35 @@ class NetworkAudioSource:
     def _convert_audio_format(self, audio_file_path: str) -> bytes:
         """Convert audio file to ESP32-P4 format (16kHz, mono, 16-bit PCM)."""
         try:
-            import soundfile as sf
-            
-            # Load audio file
-            audio_data, sample_rate = sf.read(audio_file_path, dtype='float32')
-            
-            # Convert to mono if stereo
-            if len(audio_data.shape) > 1:
-                audio_data = np.mean(audio_data, axis=1)
-            
-            # Resample to 16kHz if needed
+            with wave.open(audio_file_path, 'rb') as wav_file:
+                sample_rate = wav_file.getframerate()
+                channels = wav_file.getnchannels()
+                sample_width = wav_file.getsampwidth()
+                audio_data = wav_file.readframes(wav_file.getnframes())
+
+            if not audio_data:
+                return b''
+
+            # Convert sample width to 16-bit if needed
+            if sample_width != 2:
+                audio_data = audioop.lin2lin(audio_data, sample_width, 2)
+
+            # Convert to mono if stereo (two channels)
+            if channels == 2:
+                audio_data = audioop.tomono(audio_data, 2, 0.5, 0.5)
+            elif channels > 2:
+                logging.warning(f"Unsupported channel count ({channels}) for {audio_file_path}; averaging to mono")
+                # Average additional channels by converting to numpy
+                np_data = np.frombuffer(audio_data, dtype=np.int16).reshape(-1, channels)
+                mono = np.mean(np_data, axis=1).astype(np.int16)
+                audio_data = mono.tobytes()
+
+            # Resample to 16kHz if necessary
             if sample_rate != 16000:
-                import librosa
-                audio_data = librosa.resample(audio_data, orig_sr=sample_rate, target_sr=16000)
-            
-            # Convert to 16-bit PCM
-            audio_int16 = (audio_data * 32767).astype(np.int16)
-            
-            return audio_int16.tobytes()
-            
+                audio_data, _ = audioop.ratecv(audio_data, 2, 1, sample_rate, 16000, None)
+
+            return audio_data
+
         except Exception as e:
             logging.error(f"Audio format conversion failed: {e}")
             return b''
@@ -358,11 +370,15 @@ class NetworkAudioSource:
             if packet_info and self.protocol_parser.is_enhanced_packet(packet_info):
                 self.stats['esp32p4_enhanced_packets'] += 1
         
-        # Convert to int16 for compatibility
-        if audio_data.dtype != np.int16:
-            audio_int16 = (audio_data * 32767).astype(np.int16)
+        # Prefer parsed audio from ESP32-P4 packet to avoid header bytes in stream
+        if packet_info and packet_info.audio_data is not None:
+            audio_int16 = packet_info.audio_data.astype(np.int16)
         else:
-            audio_int16 = audio_data
+            # Convert to int16 for compatibility (fallback path)
+            if audio_data.dtype != np.int16:
+                audio_int16 = (audio_data * 32767).astype(np.int16)
+            else:
+                audio_int16 = audio_data
         
         # Ensure correct chunk size
         if len(audio_int16) != self.chunk_size:
