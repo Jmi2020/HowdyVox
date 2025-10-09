@@ -78,9 +78,18 @@ def update_led_state(state, text=None):
     if _last_led_state != state:
         # Print state changes to UI (always visible)
         if state == 'speaking' and text:
-            # Show Howdy's full response including multi-paragraph text
-            # Handle newlines properly by printing each paragraph
-            print(f"{Fore.CYAN}Howdy:{Fore.RESET} {text}")
+            # Handle multi-paragraph responses - print each paragraph separately
+            # This ensures the UI captures all text even with newlines
+            paragraphs = text.split('\n\n')
+
+            # Print first paragraph with "Howdy:" prefix
+            if paragraphs:
+                print(f"{Fore.CYAN}Howdy:{Fore.RESET} {paragraphs[0].strip()}")
+
+                # Print remaining paragraphs with continuation indent
+                for para in paragraphs[1:]:
+                    if para.strip():  # Only print non-empty paragraphs
+                        print(f"       {para.strip()}")
         elif state == 'thinking':
             print(f"{color}Thinking...{Fore.RESET}")
         elif state == 'listening':
