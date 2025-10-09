@@ -23,12 +23,14 @@ class HowdyVoxUI:
         # Queue for thread-safe UI updates
         self.update_queue = queue.Queue()
 
-        # Status colors
+        # Status colors - updated to match Howdy's states
         self.status_colors = {
-            'waiting': '#FFA500',    # Orange
-            'listening': '#4CAF50',  # Green
-            'processing': '#2196F3', # Blue
-            'speaking': '#9C27B0',   # Purple
+            'waiting': '#00BCD4',    # Cyan - matches console color
+            'listening': '#4CAF50',  # Green - matches console color
+            'processing': '#FFC107', # Yellow/Amber - matches "Thinking..."
+            'thinking': '#FFC107',   # Yellow/Amber - alias for processing
+            'speaking': '#9C27B0',   # Magenta/Purple - matches console color
+            'ending': '#2196F3',     # Blue - matches console color
             'error': '#F44336'       # Red
         }
 
@@ -146,7 +148,19 @@ class HowdyVoxUI:
         self.current_status = status
         color = self.status_colors.get(status, '#FFA500')
         self.status_indicator.itemconfig(self.status_dot, fill=color)
-        self.status_label.config(text=status.capitalize())
+
+        # Map status to display text
+        status_text = {
+            'waiting': 'Waiting',
+            'listening': 'Listening',
+            'processing': 'Thinking',
+            'thinking': 'Thinking',
+            'speaking': 'Speaking',
+            'ending': 'Ending',
+            'error': 'Error'
+        }.get(status, status.capitalize())
+
+        self.status_label.config(text=status_text)
 
     def add_message(self, message, tag='system'):
         """Add a message to the conversation display"""
@@ -210,29 +224,52 @@ class HowdyVoxUI:
         if not line:
             return
 
-        # Status updates
-        if 'Listening for wake word' in line or 'Say "Hey Howdy"' in line:
+        # Status updates - updated to match current output format
+        if 'initialized' in line.lower() or 'Say \'Hey Howdy\'' in line or 'wake word detection' in line.lower():
             self.queue_status_update('waiting')
+            if 'initialized' in line.lower():
+                self.queue_message("HowdyVox initialized. Say 'Hey Howdy' to start!", 'system')
         elif 'Wake word detected' in line or 'Listening...' in line:
             self.queue_status_update('listening')
-        elif 'Transcribing' in line or 'Getting response' in line:
+        elif 'Thinking...' in line:
             self.queue_status_update('processing')
-        elif 'Speaking' in line or 'Playing response' in line:
-            self.queue_status_update('speaking')
-        elif 'error' in line.lower() or 'failed' in line.lower():
+        elif 'Ready for your next question' in line:
+            self.queue_status_update('listening')
+        elif 'Voice assistant stopped' in line or 'Goodbye' in line:
+            self.queue_status_update('waiting')
+            if 'stopped' in line:
+                self.queue_message(line, 'error')
+            return
+        elif 'error' in line.lower() and 'ERROR' in line:
+            # Only treat actual ERROR level logs as errors, not words containing "error"
             self.queue_status_update('error')
             self.queue_message(line, 'error')
             return
 
-        # User transcripts
-        if 'You said:' in line or 'User:' in line:
-            text = re.sub(r'.*?(You said:|User:)\s*', '', line)
+        # User transcripts - updated format
+        if line.startswith('You:'):
+            text = line[4:].strip()  # Remove "You:" prefix
             self.queue_message(text, 'user')
 
-        # Assistant responses
-        elif 'Howdy:' in line or 'Assistant:' in line:
-            text = re.sub(r'.*?(Howdy:|Assistant:)\s*', '', line)
+        # Assistant responses - updated format
+        elif line.startswith('Howdy:'):
+            text = line[6:].strip()  # Remove "Howdy:" prefix
             self.queue_message(text, 'assistant')
+            # Set status to speaking when Howdy responds
+            self.queue_status_update('speaking')
+
+        # Handle continuation lines (indented paragraphs)
+        elif line.startswith('       ') and self.current_status == 'speaking':
+            # This is a continuation paragraph
+            text = line.strip()
+            # Append to last message instead of creating new one
+            self.conversation_text.config(state=tk.NORMAL)
+            # Remove the last newline
+            self.conversation_text.delete("end-2c", "end-1c")
+            # Add the continuation
+            self.conversation_text.insert(tk.END, f"\n{text}\n\n")
+            self.conversation_text.see(tk.END)
+            self.conversation_text.config(state=tk.DISABLED)
 
     def monitor_process(self, process):
         """Monitor the voice assistant process output"""
