@@ -127,14 +127,16 @@ if PYOBJC_AVAILABLE:
             
                 # Get input node
                 self.input_node = self.engine.inputNode()
-            
-                # Create audio format
-                self.audio_format = AVAudioFormat.alloc().initWithCommonFormat_sampleRate_channels_interleaved_(
-                    AVAudioPCMFormatFloat32,
-                    self.config.sample_rate,
-                    self.config.channels,
-                    True
-                )
+
+                # Use the input node's native output format instead of forcing a specific format
+                # This prevents format mismatch errors
+                self.audio_format = self.input_node.outputFormatForBus_(0)
+
+                # Update config to reflect actual format
+                self.config.sample_rate = int(self.audio_format.sampleRate())
+                self.config.channels = int(self.audio_format.channelCount())
+
+                logging.info(f"Using native audio format: {self.config.sample_rate} Hz, {self.config.channels} ch")
             
                 # Configure input node for voice processing
                 self._configure_voice_processing()
