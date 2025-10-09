@@ -32,24 +32,37 @@ class MacAudioRecorder:
         # Audio parameters
         self.sample_rate = 48000  # macOS voice isolation prefers 48kHz
         self.channels = 1
-        self.chunk_duration_ms = 20  # 20ms chunks
+        # Silero VAD requires 32ms chunks (512 samples at 16kHz)
+        self.chunk_duration_ms = 32  # 32ms chunks to match Silero VAD
         self.chunk_size = int(self.sample_rate * self.chunk_duration_ms / 1000)
         
-        # Initialize voice isolation (will use device's native format)
+        # Calculate buffer size for our chunk duration (32ms to match Silero VAD)
+        # This will be recalculated by voice isolation for the actual sample rate
+        initial_buffer_size = int(self.sample_rate * self.chunk_duration_ms / 1000)
+
+        # Initialize voice isolation with proper config
+        # It will detect and use the device's native format
         vi_config = VoiceIsolationConfig(
-            sample_rate=self.sample_rate,  # Initial preference
+            sample_rate=self.sample_rate,  # Initial preference (will be overridden)
             channels=self.channels,
             quality=kAUVoiceIOProperty_VoiceProcessingQuality_High,
             enable_agc=True,
             enable_noise_suppression=True,
-            buffer_size=self.chunk_size
+            buffer_size=initial_buffer_size  # Will be recalculated based on actual sample rate
         )
         self.voice_isolation = MacVoiceIsolation(vi_config)
 
         # Update sample rate to match what voice isolation actually uses
         # (it will use the device's native format, e.g., 44100 Hz)
         self.voice_isolation_sample_rate = self.voice_isolation.config.sample_rate
-        logging.info(f"Voice isolation using {self.voice_isolation_sample_rate} Hz")
+
+        # Use the buffer size calculated by voice isolation (maintains same duration)
+        self.voice_isolation_chunk_size = self.voice_isolation.config.buffer_size
+
+        logging.info(
+            f"Voice isolation using {self.voice_isolation_sample_rate} Hz, "
+            f"chunk size: {self.voice_isolation_chunk_size} samples"
+        )
 
         # Silero VAD only supports 8000 or 16000 Hz
         # We'll use 16000 Hz and resample if needed
@@ -59,8 +72,11 @@ class MacAudioRecorder:
             chunk_duration_ms=self.chunk_duration_ms
         )
 
-        # Update chunk size for resampling calculations
-        self.vad_chunk_size = int(self.vad_sample_rate * self.chunk_duration_ms / 1000)
+        # Calculate VAD chunk size (Silero requires exactly 512 samples at 16kHz)
+        self.vad_chunk_size = 512  # Fixed for Silero VAD at 16kHz
+
+        # Buffer for accumulating resampled audio before feeding to VAD
+        self.vad_buffer = np.array([], dtype=np.float32)
         
         # Initialize utterance detector
         self.utterance_detector = IntelligentUtteranceDetector()
@@ -93,6 +109,7 @@ class MacAudioRecorder:
         """
         # Reset components
         self.vad.reset()
+        self.vad_buffer = np.array([], dtype=np.float32)  # Clear VAD buffer
         context = UtteranceContext()
         
         # Audio buffers
@@ -157,12 +174,29 @@ class MacAudioRecorder:
                 # Always add original (non-resampled) to pre-speech buffer
                 pre_speech_buffer.append(processed_audio)
 
-                # Detect speech using VAD (with resampled audio)
-                is_speech, confidence = self.vad.process_chunk(resampled_audio)
-                
-                # Handle speech detection
-                if is_speech and not recording_started:
-                    logging.info(f"Speech detected (confidence: {confidence:.2f})")
+                # Add resampled audio to buffer
+                self.vad_buffer = np.concatenate([self.vad_buffer, resampled_audio])
+
+                # Process all complete 512-sample chunks in the buffer
+                # Track if any chunk detected speech
+                chunk_has_speech = False
+                latest_confidence = 0.0
+
+                while len(self.vad_buffer) >= self.vad_chunk_size:
+                    # Extract exactly 512 samples
+                    chunk = self.vad_buffer[:self.vad_chunk_size]
+                    self.vad_buffer = self.vad_buffer[self.vad_chunk_size:]
+
+                    # Detect speech using VAD
+                    is_speech, confidence = self.vad.process_chunk(chunk)
+
+                    if is_speech:
+                        chunk_has_speech = True
+                        latest_confidence = confidence
+
+                # Handle speech detection (if any chunk had speech)
+                if chunk_has_speech and not recording_started:
+                    logging.info(f"Speech detected (confidence: {latest_confidence:.2f})")
                     recording_started = True
                     speech_detected = True
                     
@@ -175,15 +209,15 @@ class MacAudioRecorder:
                 elif recording_started:
                     # Add to recording buffer
                     audio_buffer.append(processed_audio)
-                    
+
                     # Update context
                     context.total_speech_duration = (
                         len(audio_buffer) * self.chunk_duration_ms / 1000
                     )
-                    
-                    # Check for utterance end
+
+                    # Check for utterance end using latest VAD results
                     should_end, reason = self.utterance_detector.should_end_utterance(
-                        context, is_speech, confidence
+                        context, chunk_has_speech, latest_confidence
                     )
                     
                     if should_end:
@@ -269,7 +303,7 @@ class MacAudioRecorder:
     def cleanup(self):
         """Clean up resources."""
         if self.voice_isolation:
-            self.voice_isolation.stop()
+            self.voice_isolation.cleanup()
 
 # Global recorder instance
 _mac_recorder_instance = None

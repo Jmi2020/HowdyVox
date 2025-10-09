@@ -133,10 +133,23 @@ if PYOBJC_AVAILABLE:
                 self.audio_format = self.input_node.outputFormatForBus_(0)
 
                 # Update config to reflect actual format
-                self.config.sample_rate = int(self.audio_format.sampleRate())
-                self.config.channels = int(self.audio_format.channelCount())
+                actual_sample_rate = int(self.audio_format.sampleRate())
+                actual_channels = int(self.audio_format.channelCount())
 
-                logging.info(f"Using native audio format: {self.config.sample_rate} Hz, {self.config.channels} ch")
+                # Recalculate buffer size to maintain the same duration
+                # buffer_size was calculated for the original sample rate
+                # We need to scale it for the new sample rate
+                if self.config.sample_rate != actual_sample_rate:
+                    original_duration_ms = (self.config.buffer_size / self.config.sample_rate) * 1000
+                    self.config.buffer_size = int((actual_sample_rate * original_duration_ms) / 1000)
+
+                self.config.sample_rate = actual_sample_rate
+                self.config.channels = actual_channels
+
+                logging.info(
+                    f"Using native audio format: {self.config.sample_rate} Hz, "
+                    f"{self.config.channels} ch, buffer: {self.config.buffer_size} samples"
+                )
             
                 # Configure input node for voice processing
                 self._configure_voice_processing()
@@ -338,32 +351,47 @@ if PYOBJC_AVAILABLE:
             """Stop the voice isolation engine."""
             if not self.is_running:
                 return
-        
+
             try:
                 self.is_running = False
-            
+
                 # Stop the engine
                 self.engine.stop()
-            
-                # Remove the tap
-                self.input_node.removeTapOnBus_(0)
-            
+
+                # Don't remove the tap - it's reusable and the tap_block checks is_running
+                # Removing and reinstalling the tap causes issues on restart
+
                 # Clear buffers
                 while not self.output_buffer.empty():
                     self.output_buffer.get_nowait()
-            
+
                 logging.info("Voice isolation stopped")
-            
+
             except Exception as e:
                 logging.error(f"Error stopping voice isolation: {e}")
     
+        def cleanup(self):
+            """Clean up resources completely (removes tap)."""
+            try:
+                # Stop if running
+                if self.is_running:
+                    self.stop()
+
+                # Now remove the tap for complete shutdown
+                if self.input_node:
+                    self.input_node.removeTapOnBus_(0)
+                    logging.info("Audio tap removed")
+
+            except Exception as e:
+                logging.error(f"Error during cleanup: {e}")
+
         def read_processed_audio(self, timeout: Optional[float] = None) -> Optional[np.ndarray]:
             """
             Read processed audio from the output buffer.
-        
+
             Args:
                 timeout: Maximum time to wait for audio
-            
+
             Returns:
                 Processed audio array or None if timeout
             """
