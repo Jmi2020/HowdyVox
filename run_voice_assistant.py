@@ -29,6 +29,9 @@ from voice_assistant.wireless_device_manager import WirelessDeviceManager
 from voice_assistant.audio_source_manager import AudioSourceManager, AudioSourceType, get_audio_manager, set_audio_manager, cleanup_audio_manager
 from voice_assistant.hotkey_manager import get_hotkey_manager, start_hotkeys, stop_hotkeys
 
+# Import greeting generator for dynamic wake word responses
+from voice_assistant.greeting_generator import generate_wake_greeting
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -81,44 +84,77 @@ def check_end_conversation(text):
 def handle_wake_word():
     """Callback function when wake word is detected"""
     # No need for global declaration as it's already declared at module level
-    
+
     logging.info("Wake word detected, activating conversation mode")
     # Set the events to trigger conversation mode
     wake_word_detected.set()
     conversation_active.set()
-    
+
     # Set the flag that this is the first turn after wake word
     is_first_turn_after_wake.set()
-    
-    # Play activation sound first, before updating LED matrix
+
+    # Generate and play dynamic greeting
     try:
-        # First, check if the activation sound exists
-        if os.path.exists("voice_samples/activate.wav"):
-            # Signal that activation sound is playing
-            activation_sound_playing.set()
-            
-            # Play the activation sound in a separate thread so we don't block
-            threading.Thread(target=lambda: play_and_clear_flag("voice_samples/activate.wav"), daemon=True).start()
-            
-            # Brief pause to ensure the playback thread starts
-            time.sleep(0.1)
-            
-            logging.info("Activation sound started, preparing to listen")
+        # Signal that greeting is playing
+        activation_sound_playing.set()
+
+        # Generate unique greeting using LLM
+        logging.info("Generating dynamic wake word greeting...")
+        greeting_text = generate_wake_greeting()
+        logging.info(f"Generated greeting: '{greeting_text}'")
+
+        # Play the greeting in a separate thread so we don't block
+        threading.Thread(
+            target=lambda: play_greeting_and_clear_flag(greeting_text),
+            daemon=True
+        ).start()
+
+        # Brief pause to ensure the playback thread starts
+        time.sleep(0.1)
+
+        logging.info("Greeting playback started, preparing to listen")
     except Exception as e:
-        logging.info(f"Activation sound error: {e}, continuing without it")
+        logging.error(f"Greeting generation/playback error: {e}, continuing without it")
         # Clear the flag in case of error
         activation_sound_playing.clear()
-        
+
     # Update LED matrix to show "Listening" right away
     if led_matrix:
         led_matrix.set_listening()
-        
-# Helper function to play audio and clear flag when done
-def play_and_clear_flag(audio_path):
+
+# Helper function to generate and play greeting, then clear flag
+def play_greeting_and_clear_flag(greeting_text):
+    """
+    Generate TTS for greeting and play it, then clear the activation flag.
+
+    Args:
+        greeting_text (str): The greeting text to speak
+    """
     try:
-        play_audio(audio_path)
+        # Generate TTS for the greeting
+        tts_api_key = get_tts_api_key()
+        greeting_file = "temp/greeting.wav"
+
+        success, audio_file = text_to_speech(
+            Config.TTS_MODEL,
+            tts_api_key,
+            greeting_text,
+            greeting_file,
+            Config.LOCAL_MODEL_PATH
+        )
+
+        if success and audio_file:
+            # Play the greeting
+            play_audio(audio_file)
+            # Clean up the file
+            delete_file(audio_file)
+        else:
+            logging.warning("Failed to generate greeting audio")
+
+    except Exception as e:
+        logging.error(f"Error playing greeting: {e}")
     finally:
-        # Always clear the flag when audio playback completes
+        # Always clear the flag when greeting playback completes
         activation_sound_playing.clear()
 
 def safe_start_wake_word_detection():
@@ -393,14 +429,26 @@ def main():
             if wake_word_detected.is_set():
                 # Clear the wake word detected flag for next time
                 wake_word_detected.clear()
-                
-                # Check if activation sound is playing
+
+                # Wait for greeting to finish playing before starting recording
                 if activation_sound_playing.is_set():
-                    logging.info("Activation sound is playing in background")
-                    time.sleep(0.1)
+                    logging.info("Waiting for greeting to finish playing...")
+                    max_wait = 5.0  # Maximum 5 seconds to wait for greeting
+                    wait_start = time.time()
+
+                    while activation_sound_playing.is_set():
+                        if time.time() - wait_start > max_wait:
+                            logging.warning("Greeting playback timeout, proceeding anyway")
+                            activation_sound_playing.clear()
+                            break
+                        time.sleep(0.1)
+
+                    logging.info("Greeting finished, ready to record")
+                    # Add a small buffer after greeting to ensure clean recording
+                    time.sleep(0.2)
                 else:
-                    logging.info("No activation sound playing")
-                
+                    logging.info("No greeting playing")
+
                 logging.info("Starting recording now...")
             
             # Record audio from the microphone and save it
