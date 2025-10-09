@@ -1,4 +1,5 @@
 import os
+import sys
 import struct
 import logging
 import time
@@ -10,6 +11,7 @@ from dotenv import load_dotenv
 import speech_recognition as sr
 import threading
 import queue
+from contextlib import contextmanager
 
 # Initialize colorama
 init(autoreset=True)
@@ -20,6 +22,22 @@ load_dotenv()
 # Global variables for better resource management
 DETECTOR_REGISTRY = []  # Keep track of all detector instances for proper cleanup
 MAX_DETECTORS = 5  # Maximum number of detectors to keep in memory
+
+@contextmanager
+def suppress_stderr():
+    """Context manager to suppress stderr output from C libraries (e.g., PortAudio)."""
+    stderr_fd = sys.stderr.fileno()
+    # Save the original stderr
+    with os.fdopen(os.dup(stderr_fd), 'w') as old_stderr:
+        # Redirect stderr to devnull
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, stderr_fd)
+        os.close(devnull)
+        try:
+            yield
+        finally:
+            # Restore stderr
+            os.dup2(old_stderr.fileno(), stderr_fd)
 
 def cleanup_all_detectors():
     """Force cleanup of all detector instances"""
@@ -115,9 +133,12 @@ class WakeWordDetector:
                 logging.error(f"{Fore.RED}Error initializing Porcupine with built-in keywords: {e2}{Fore.RESET}")
                 raise ValueError(f"Could not initialize Porcupine with either custom model or built-in keywords: {e2}")
             
-        # Initialize PyAudio
+        # Initialize PyAudio with stderr suppression for macOS AUHAL warnings
+        # The PaMacCore AUHAL error (err=-50) is a harmless warning from PortAudio
+        # that doesn't affect functionality. We suppress it to reduce log noise.
         try:
-            self.audio = pyaudio.PyAudio()
+            with suppress_stderr():
+                self.audio = pyaudio.PyAudio()
         except Exception as e:
             logging.error(f"{Fore.RED}Error initializing PyAudio: {e}{Fore.RESET}")
             raise
