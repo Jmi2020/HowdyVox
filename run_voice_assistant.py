@@ -78,8 +78,13 @@ def update_led_state(state, text=None):
     if _last_led_state != state:
         # Print state changes to UI (always visible)
         if state == 'speaking' and text:
-            # Show Howdy's full response
-            print(f"{Fore.CYAN}Howdy:{Fore.RESET} {text}")
+            # Show Howdy's full response (no truncation)
+            # Print to console
+            import sys
+            sys.stdout.write(f"{Fore.CYAN}Howdy:{Fore.RESET} {text}\n")
+            sys.stdout.flush()
+            # Also log the full response
+            logging.info(f"Howdy: {text}")
         elif state == 'thinking':
             print(f"{color}Thinking...{Fore.RESET}")
         elif state == 'listening':
@@ -577,7 +582,9 @@ def main():
                     # If waiting for wake word, go back to waiting
                     continue
                 
-            logging.info(Fore.GREEN + "You said: " + user_input + Fore.RESET)
+            # Print and log full user input
+            print(f"{Fore.GREEN}You:{Fore.RESET} {user_input}")
+            logging.info(f"User: {user_input}")
 
             # Check if the user wants to exit the program (complete shutdown)
             if "shut down howdy program" in user_input.lower() or "shut down the howdy program" in user_input.lower() or "code phrase exit" in user_input.lower():
