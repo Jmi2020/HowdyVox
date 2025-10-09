@@ -105,3 +105,6 @@ Tests_Fixes/
 # Artifacts
 howdy_Opt.md
 **/.claude/settings.local.json
+
+# Claude Code documentation (project-specific)
+CLAUDE.md

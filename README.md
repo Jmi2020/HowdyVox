@@ -1,21 +1,147 @@
-# HowdyTTS - A Voice Assistant with Cowboy Charm 🤠
+# HowdyVox - Your Local Conversational AI Companion 🎙️
 
-Howdy, partner! I'm your friendly neighborhood voice assistant with a bit o' cowboy twang. I'm 100% offline, so you don't need to worry about them internet varmints listenin' in on our conversations!
+Welcome to HowdyVox - a fully local, privacy-first conversational AI system that runs entirely on your machine. No cloud services, no data leaks, no subscriptions. Just you, your voice, and an AI personality that's completely under your control.
 
-## Features 🌟
+## What Makes HowdyVox Different 🌟
 
-- **Wake Word Detection**: Just say "Hey Howdy" to activate me
-- **100% Offline Operation**: No cloud services required, everythin' runs right on your machine
-- **Cowboy Voice**: Uses Kokoro TTS with the 'am_michael' voice model for that authentic cowboy sound
-- **Fast Local Speech Recognition**: Powered by FastWhisperAPI
-- **Local LLM Support**: Integrated with Ollama for text generation (works with Gemma 3 or any model of your choice)
-- **Continuous Conversation**: Chat naturally without saying the wake word for each interaction
-- **Voice Blending**: Create custom voices by blending multiple voice styles together (see [Voice Blending](#voice-blending-))
-- **Enhanced TTS Performance**: Advanced stuttering fixes with adaptive chunk sizing and response-aware delays
-- **Comprehensive Testing Suite**: Built-in testing scripts for all components and troubleshooting tools
-- **Multi-Room Support**: Microphone manager for identifying and configuring multiple USB microphones
-- **Memory Optimization**: Targeted garbage collection and audio buffer pooling for stable performance
-- **Model Preloading**: Both Kokoro TTS and Ollama LLM models are preloaded at startup for faster response times
+### Complete Privacy & Local Operation
+Every component runs on your machine. Your conversations never leave your computer. No internet connection required once set up.
+
+### Plug-and-Play Model Architecture
+- **Bring Your Own LLM**: Works with any Ollama-compatible model (Gemma 3, Llama, Mistral, etc.)
+- **Customizable Personality**: Edit the `SYSTEM_PROMPT` in `voice_assistant/config.py` to create any personality you want
+- **Voice Flexibility**: Choose from 20+ built-in voices or blend them to create your own unique voice
+- **Swap Models On-The-Fly**: Change the LLM model without restarting - just update `OLLAMA_LLM` in config
+
+### Optimized for Low-Latency Conversations
+- **Model Preloading**: Both TTS and LLM models load at startup for instant first responses
+- **Adaptive Audio Chunking**: Automatically adjusts processing based on response length
+- **Intelligent Buffering**: Pre-buffers audio to eliminate stuttering and gaps
+- **Memory-Optimized**: Targeted garbage collection prevents memory leaks during long conversations
+
+### Natural Conversation Flow
+- **Wake Word Activation**: Say "Hey Howdy" to start, then chat naturally
+- **Context Awareness**: Maintains conversation context until you explicitly end the session
+- **Intelligent VAD**: Neural network-based voice activity detection knows when you've finished speaking
+- **Multi-Room Support**: Configure USB microphones for different physical locations
+
+### Developer-Friendly
+- **Comprehensive Testing Suite**: 15+ diagnostic scripts to verify every component
+- **Automated Fixes**: Run `fix_all_issues.py` to automatically diagnose and repair common problems
+- **Modular Architecture**: Each component (STT, LLM, TTS) is independently replaceable
+- **Extensive Documentation**: Detailed guides for every feature and troubleshooting scenario
+
+## How It Works: The Mechanics 🔧
+
+HowdyVox orchestrates multiple components working in harmony to create a seamless conversational experience. Here's what happens under the hood:
+
+### The Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ 1. WAKE WORD DETECTION (Porcupine)                                 │
+│    ↓ Listens continuously for "Hey Howdy"                          │
+├─────────────────────────────────────────────────────────────────────┤
+│ 2. VOICE ACTIVITY DETECTION (Silero Neural VAD)                    │
+│    ↓ Intelligently detects when you start and stop speaking        │
+├─────────────────────────────────────────────────────────────────────┤
+│ 3. SPEECH-TO-TEXT (FastWhisperAPI - Local)                         │
+│    ↓ Transcribes your audio to text                                │
+├─────────────────────────────────────────────────────────────────────┤
+│ 4. LANGUAGE MODEL (Ollama - Your Choice of Model)                  │
+│    ↓ Generates response using your custom SYSTEM_PROMPT            │
+├─────────────────────────────────────────────────────────────────────┤
+│ 5. TEXT-TO-SPEECH (Kokoro ONNX - Your Choice of Voice)            │
+│    ↓ Converts response to natural-sounding speech                  │
+├─────────────────────────────────────────────────────────────────────┤
+│ 6. AUDIO PLAYBACK                                                   │
+│    ↓ Streams audio with adaptive chunking for smooth delivery      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### The Startup Sequence
+
+When you launch HowdyVox (via `launch_howdy_terminal.py`), here's what happens:
+
+1. **Port Cleanup**: Checks for any existing FastWhisperAPI processes on port 8000 and terminates them
+   ```python
+   # Ensures clean startup without port conflicts
+   lsof -ti :8000 | xargs kill -9
+   ```
+
+2. **FastWhisperAPI Launch**: Starts the local speech recognition server in the background
+   ```bash
+   conda run -n howdy310 uvicorn main:app --host 127.0.0.1 --port 8000
+   ```
+   - Runs in a separate process group for independent lifecycle management
+   - Uses `--no-capture-output` to preserve all logging output
+   - Initializes in approximately 8 seconds
+
+3. **Model Preloading**: While starting, `run_voice_assistant.py` performs critical optimizations:
+   ```python
+   # Preload Kokoro TTS models into memory
+   kokoro_manager = KokoroManager()
+
+   # Preload Ollama LLM model to avoid cold start
+   preload_ollama_model(Config.OLLAMA_LLM)
+   ```
+   This means your **first response is just as fast as your tenth** - no waiting for models to load.
+
+4. **Wake Word Listener**: Porcupine begins listening for "Hey Howdy"
+   - Low CPU usage while idle
+   - No recording until wake word detected
+   - Privacy-preserving: audio is discarded if no wake word
+
+5. **Conversation Loop**: Once activated, the system enters an intelligent conversation mode:
+   ```python
+   while conversation_active:
+       # Record with intelligent VAD
+       audio = record_audio_with_vad()
+
+       # Transcribe locally
+       text = transcribe_audio(audio)
+
+       # Generate with your custom personality
+       response = generate_response(text, SYSTEM_PROMPT)
+
+       # Speak with adaptive chunking
+       text_to_speech(response, adaptive_chunks=True)
+
+       # Check for exit phrases
+       if check_end_conversation(text):
+           break
+   ```
+
+### Customizing Your AI's Personality
+
+The magic happens in `voice_assistant/config.py`:
+
+```python
+# Your LLM of choice - swap anytime
+OLLAMA_LLM = "hf.co/unsloth/gemma-3-4b-it-GGUF:latest"
+
+# Your voice style - 20+ options or create blends
+KOKORO_VOICE = 'am_michael'
+
+# Your AI's personality - edit to match your needs
+SYSTEM_PROMPT = (
+    "You are George Carlin and Rodney Carrington as a single entity. "
+    "Keep responses concise unless depth is essential. "
+    "Maintain a neutral or lightly wry tone..."
+)
+```
+
+Want a philosophical AI? A technical expert? A witty companion? Just edit the `SYSTEM_PROMPT`. The system will maintain this personality throughout your conversations while adapting to your questions and context.
+
+### Audio Optimization: Eliminating Stuttering
+
+HowdyVox uses **adaptive chunk sizing** to ensure smooth audio playback:
+
+- **Short responses** (<100 chars): 150-char chunks with 50ms delays
+- **Medium responses** (100-500 chars): 180-char chunks with 100ms delays
+- **Long responses** (>500 chars): 220-char chunks with 150ms delays
+
+The system pre-buffers chunks in the background while playing earlier chunks, creating seamless audio delivery even on longer responses. Combined with targeted garbage collection of audio buffers, you get stable performance during marathon conversation sessions.
 
 ## Prerequisites ✅
 
@@ -31,8 +157,8 @@ Howdy, partner! I'm your friendly neighborhood voice assistant with a bit o' cow
 
 ### 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/HowdyTTS.git
-cd HowdyTTS
+git clone https://github.com/Jmi2020/HowdyVox.git
+cd HowdyVox
 ```
 
 ### 2. Create and activate a virtual environment:
@@ -87,22 +213,55 @@ You can substitute with any model of your choice.
 python Tests_Fixes/fix_onnx_runtime.py
 ```
 
-## Running the Assistant 🤠
+## Running HowdyVox 🎙️
 
-Start the voice assistant:
+### Recommended: Terminal Launcher (One Command)
 ```bash
+python launch_scripts_backup/launch_howdy_terminal.py
+```
+
+This unified launcher:
+- Automatically kills any existing FastWhisperAPI processes
+- Starts FastWhisperAPI in the background
+- Launches the voice assistant in the foreground
+- Handles cleanup when you exit (Ctrl+C)
+- Preserves all logging output for debugging
+
+### Alternative: Manual Two-Terminal Approach
+```bash
+# Terminal 1: Start FastWhisperAPI
+cd FastWhisperAPI
+uvicorn main:app --host 127.0.0.1 --port 8000
+
+# Terminal 2: Start voice assistant
 python run_voice_assistant.py
 ```
 
-The assistant will:
-1. **Initialize Models**: Preload both Kokoro TTS and Ollama LLM models for faster response times
-2. **Start Wake Word Detection**: Wait for the wake word "Hey Howdy" 
-3. **Listen**: Record your voice input with enhanced audio processing
-4. **Transcribe**: Convert speech to text using FastWhisperAPI
-5. **Generate Response**: Create a cowboy-themed response using Ollama
-6. **Speak**: Deliver the response using optimized Kokoro TTS with stuttering fixes
+### What Happens When You Run It
 
-The conversation will continue until you say phrases like "goodbye", "that's all", or "thanks, that's all".
+1. **Model Preloading** (10-15 seconds)
+   - Kokoro TTS voice models load into memory
+   - Ollama LLM model initializes
+   - This one-time startup cost ensures instant responses later
+
+2. **Wake Word Detection**
+   - System displays: "Listening for wake word 'Hey Howdy'..."
+   - Porcupine is now actively listening
+   - Say "Hey Howdy" to activate
+
+3. **Conversation Mode**
+   - LED indicator (if configured) shows "Listening"
+   - Speak naturally - Silero VAD detects when you're done
+   - Your audio transcribes locally via FastWhisperAPI
+   - Ollama generates a response using your `SYSTEM_PROMPT` personality
+   - Kokoro TTS speaks the response with your chosen voice
+   - Conversation continues until you say "goodbye", "that's all", etc.
+
+4. **Context Retention**
+   - Each turn remembers previous exchanges
+   - Ask follow-up questions naturally
+   - No need to repeat "Hey Howdy" between turns
+   - Context clears only when you explicitly end the conversation
 
 ### Enhanced Performance Features:
 
@@ -111,21 +270,84 @@ The conversation will continue until you say phrases like "goodbye", "that's all
 - **Memory Management**: Targeted garbage collection prevents memory leaks
 - **Enhanced Audio Processing**: Improved recording and playback with reduced stuttering
 
-## Configuration ⚙️
+## Customization & Configuration ⚙️
 
-The system uses centralized configuration in `voice_assistant/config.py`. Key settings include:
+HowdyVox is designed to be completely customizable. Everything is controlled through `voice_assistant/config.py`.
+
+### Choose Your Language Model
 
 ```python
-TRANSCRIPTION_MODEL = 'fastwhisperapi'  # Local speech recognition
-RESPONSE_MODEL = 'ollama'               # Local LLM using Ollama
-TTS_MODEL = 'kokoro'                    # Local TTS with cowboy voice
-KOKORO_VOICE = 'am_michael'             # Default cowboy voice
-OLLAMA_LLM = "hf.co/unsloth/gemma-3-4b-it-GGUF:latest"  # Default LLM model
+# Any Ollama-compatible model works
+OLLAMA_LLM = "hf.co/unsloth/gemma-3-4b-it-GGUF:latest"  # Fast, compact
+# OLLAMA_LLM = "llama3.2:latest"                        # Meta's Llama
+# OLLAMA_LLM = "mistral:latest"                         # Mistral AI
+# OLLAMA_LLM = "deepseek-r1:latest"                     # DeepSeek reasoning
 ```
+
+First, pull your chosen model via Ollama:
+```bash
+ollama pull llama3.2:latest
+```
+
+Then update `OLLAMA_LLM` in `config.py` and restart HowdyVox. That's it.
+
+### Design Your AI's Personality
+
+The `SYSTEM_PROMPT` defines how your AI thinks and responds. The current default is a blend of George Carlin and Rodney Carrington - witty, direct, occasionally dark:
+
+```python
+SYSTEM_PROMPT = (
+    "You are George Carlin and Rodney Carrington as a single entity. "
+    "Keep responses concise unless depth is essential. "
+    "Maintain a neutral or lightly wry tone, using dark humor sparingly..."
+)
+```
+
+**Want something different?** Edit this to anything:
+
+```python
+# A philosophical guide
+SYSTEM_PROMPT = "You are Socrates, asking probing questions to help the user think deeply."
+
+# A technical expert
+SYSTEM_PROMPT = "You are a senior software engineer with 20 years of experience. Be precise and cite best practices."
+
+# A supportive friend
+SYSTEM_PROMPT = "You are a warm, encouraging friend who celebrates wins and offers perspective during challenges."
+```
+
+The AI will embody this personality in all conversations while still adapting to your specific questions and context.
+
+### Select Your Voice
+
+```python
+KOKORO_VOICE = 'am_michael'  # American male voice (default)
+```
+
+Choose from 20+ built-in voices:
+- `af_bella`, `af_nicole`, `af_sarah` - American female voices
+- `am_michael`, `am_eric`, `am_adam` - American male voices
+- `bf_emma`, `bf_isabella` - British female voices
+- `bm_lewis`, `bm_george` - British male voices
+- And many more...
+
+List all available voices:
+```bash
+python blend_voices.py --list-voices
+```
+
+### Model Configuration
+```python
+TRANSCRIPTION_MODEL = 'fastwhisperapi'  # Local Whisper API
+RESPONSE_MODEL = 'ollama'               # Ollama LLM runtime
+TTS_MODEL = 'kokoro'                    # Kokoro ONNX TTS
+```
+
+These model backends are the foundation of HowdyVox's offline-first architecture.
 
 ## Voice Blending 🎭
 
-HowdyTTS supports voice blending, allowing you to create custom voices by combining multiple voice styles with different ratios. This lets you fine-tune the perfect voice for your assistant.
+HowdyVox supports voice blending, allowing you to create custom voices by combining multiple voice styles with different ratios. This lets you fine-tune the perfect voice for your assistant.
 
 ### Quick Example
 ```bash
@@ -142,7 +364,7 @@ For detailed instructions and advanced usage, see the [VoiceBlend.md](VoiceBlend
 
 ## LED Matrix Display (Optional) 🌟
 
-HowdyTTS supports connecting to an ESP32-S3 LED matrix display to show visual feedback of the assistant's state:
+HowdyVox supports connecting to an ESP32-S3 LED matrix display to show visual feedback of the assistant's state:
 
 - **Waiting**: Displayed when waiting for wake word
 - **Listening**: Shown when listening for your command
@@ -152,7 +374,7 @@ HowdyTTS supports connecting to an ESP32-S3 LED matrix display to show visual fe
 
 ### Setting up the LED Matrix
 
-1. Flash your ESP32-S3 with the HowdyTTS LED Matrix firmware (see [ESP32 directory](ESP32/))
+1. Flash your ESP32-S3 with the HowdyVox LED Matrix firmware (see [ESP32 directory](ESP32/))
 2. Connect your ESP32-S3 to your WiFi network
 3. Note the IP address assigned to your ESP32-S3
 4. Add the ESP32 IP to your `.env` file:
@@ -166,7 +388,7 @@ The LED matrix will automatically be used if the ESP32_IP environment variable i
 ## Recent Improvements & Technical Details 🚀
 
 ### TTS Stuttering Fix Implementation
-HowdyTTS now includes comprehensive fixes for TTS stuttering issues:
+HowdyVox now includes comprehensive fixes for TTS stuttering issues:
 
 - **Adaptive Chunk Sizing**: Automatically adjusts chunk sizes based on response length
   - Short texts (<100 chars): 150 character chunks
@@ -200,7 +422,7 @@ For detailed technical information, see:
 
 ## Testing the Setup 🧪
 
-HowdyTTS now includes a comprehensive testing suite to help diagnose and fix issues:
+HowdyVox includes a comprehensive testing suite to help diagnose and fix issues:
 
 ### Component Tests:
 ```bash
@@ -280,12 +502,35 @@ python Tests_Fixes/fix_all_issues.py
 - **TTS Performance**: Enhanced with adaptive chunk sizing and response-aware delays
 - **Model Preloading**: Both Kokoro and Ollama models preload at startup to reduce first-response latency
 
+## Why HowdyVox? 🤔
+
+In an era where AI assistants require constant internet connectivity and send your conversations to distant servers, HowdyVox takes a different approach:
+
+- **Privacy First**: Your thoughts, questions, and conversations stay on your machine. Period.
+- **Truly Yours**: Customize every aspect - the voice, the personality, the language model. Make it reflect your preferences, not a corporation's.
+- **No Subscriptions**: No monthly fees, no API costs, no rate limits. Once set up, it's yours forever.
+- **Transparent**: Every component is open source. You can see exactly how it works, modify it, improve it.
+- **Offline Capable**: No internet? No problem. HowdyVox works anywhere, anytime.
+
+HowdyVox proves that powerful AI assistants don't need to compromise your privacy or your wallet. It's conversational AI done right - local, fast, and completely under your control.
+
+## Contributing 🤝
+
+This project welcomes contributions! Whether it's:
+- Bug fixes and improvements
+- New voice personalities
+- Additional language model integrations
+- Documentation enhancements
+- Performance optimizations
+
+Feel free to open issues or submit pull requests on GitHub.
+
 ## License 📄
 
 MIT License - See LICENSE file for details
 
 ---
 
-*"Remember, partner - I'm always here to help! Just holler 'Hey Howdy' when ya need me!"* 🤠
+*"Your AI, your rules. Welcome to HowdyVox."* 🎙️
 
 
