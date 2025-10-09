@@ -26,6 +26,7 @@ class LEDMatrixController:
         self.enabled = esp32_ip is not None
         self.lock = threading.Lock()  # Thread safety for state changes
         self.current_state = None
+        self._connection_failed_logged = False  # Flag to suppress repeated warnings
         
         if self.enabled:
             logging.info(f"{Fore.CYAN}LED Matrix controller initialized with ESP32 at {esp32_ip}{Fore.RESET}")
@@ -91,7 +92,11 @@ class LEDMatrixController:
             bool: True if the update was successful, False otherwise
         """
         if not self.enabled:
-            print(f"{Fore.YELLOW}WARNING: LED Matrix disabled. Skipping state update to: {state}{Fore.RESET}")
+            # Only log the first time LED Matrix is disabled
+            if not self._connection_failed_logged:
+                print(f"{Fore.YELLOW}WARNING: LED Matrix disabled. All state updates will be skipped.{Fore.RESET}")
+                logging.warning("LED Matrix disabled. All state updates will be skipped.")
+                self._connection_failed_logged = True
             return False
             
         # Don't send duplicate state updates
@@ -137,7 +142,7 @@ class LEDMatrixController:
             bool: True if successful, False otherwise
         """
         if not self.enabled:
-            print(f"{Fore.YELLOW}WARNING: LED Matrix disabled. Skipping speaking update{Fore.RESET}")
+            # Warning already logged in update_state(), no need to repeat
             return False
             
         try:

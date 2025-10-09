@@ -7,6 +7,7 @@ import numpy as np
 import struct
 import threading
 import queue
+import warnings
 from typing import Optional, Tuple, Callable
 from dataclasses import dataclass
 
@@ -165,7 +166,10 @@ if PYOBJC_AVAILABLE:
             """Configure voice processing on the input node."""
             try:
                 # Get the audio unit from input node
-                audio_unit = self.input_node.audioUnit()
+                # Suppress ObjCPointerWarning - this is expected behavior when wrapping C pointers
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=objc.ObjCPointerWarning)
+                    audio_unit = self.input_node.audioUnit()
             
                 if not audio_unit:
                     raise RuntimeError("Failed to get audio unit from input node")
@@ -381,6 +385,31 @@ if PYOBJC_AVAILABLE:
                 if self.input_node:
                     self.input_node.removeTapOnBus_(0)
                     logging.info("Audio tap removed")
+
+                # Clean up queues to prevent semaphore leak
+                if self.output_buffer:
+                    # Clear any remaining items
+                    while not self.output_buffer.empty():
+                        try:
+                            self.output_buffer.get_nowait()
+                        except:
+                            pass
+                    # Join/close the queue to release semaphore
+                    try:
+                        self.output_buffer.join()
+                    except:
+                        pass
+
+                if self.input_buffer:
+                    while not self.input_buffer.empty():
+                        try:
+                            self.input_buffer.get_nowait()
+                        except:
+                            pass
+                    try:
+                        self.input_buffer.join()
+                    except:
+                        pass
 
             except Exception as e:
                 logging.error(f"Error during cleanup: {e}")
