@@ -11,13 +11,14 @@ import queue
 import subprocess
 import re
 from datetime import datetime
+from face_animator import FaceAnimator
 
 
 class HowdyVoxUI:
     def __init__(self, root):
         self.root = root
         self.root.title("🤠 HowdyVox")
-        self.root.geometry("600x500")
+        self.root.geometry("800x500")  # Wider to accommodate face
         self.root.configure(bg='#1e1e1e')
 
         # Queue for thread-safe UI updates
@@ -34,9 +35,16 @@ class HowdyVoxUI:
             'error': '#F44336'       # Red
         }
 
+        # Face animator (will be initialized in create_widgets)
+        self.face_animator = None
+
         self.create_widgets()
         self.current_status = 'waiting'
         self.process = None
+
+        # Start face animation
+        if self.face_animator:
+            self.face_animator.start()
 
         # Start queue checker
         self.root.after(100, self.check_queue)
@@ -83,9 +91,39 @@ class HowdyVoxUI:
         )
         self.status_label.pack(side=tk.LEFT)
 
-        # Conversation Display
-        conv_frame = tk.Frame(self.root, bg='#1e1e1e')
-        conv_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        # Main content frame - split into face and conversation
+        content_frame = tk.Frame(self.root, bg='#1e1e1e')
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+        # Left side - Animated Face
+        face_frame = tk.Frame(content_frame, bg='#1e1e1e')
+        face_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+
+        tk.Label(
+            face_frame,
+            text="Howdy",
+            font=('Arial', 12, 'bold'),
+            bg='#1e1e1e',
+            fg='#ffffff'
+        ).pack(anchor=tk.CENTER, pady=(0, 5))
+
+        # Face canvas
+        self.face_canvas = tk.Canvas(
+            face_frame,
+            width=160,
+            height=160,
+            bg='#101010',
+            highlightthickness=1,
+            highlightbackground='#2d2d2d'
+        )
+        self.face_canvas.pack()
+
+        # Initialize face animator
+        self.face_animator = FaceAnimator(self.face_canvas, size=160)
+
+        # Right side - Conversation Display
+        conv_frame = tk.Frame(content_frame, bg='#1e1e1e')
+        conv_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         tk.Label(
             conv_frame,
@@ -144,7 +182,7 @@ class HowdyVoxUI:
         self.quit_button.pack(side=tk.RIGHT, padx=5)
 
     def update_status(self, status):
-        """Update the status indicator"""
+        """Update the status indicator and face animation"""
         self.current_status = status
         color = self.status_colors.get(status, '#FFA500')
         self.status_indicator.itemconfig(self.status_dot, fill=color)
@@ -161,6 +199,21 @@ class HowdyVoxUI:
         }.get(status, status.capitalize())
 
         self.status_label.config(text=status_text)
+
+        # Update face animation state
+        if self.face_animator:
+            # Map UI status to face states
+            face_state_map = {
+                'waiting': 'idle',
+                'listening': 'listening',
+                'processing': 'thinking',
+                'thinking': 'thinking',
+                'speaking': 'speaking',
+                'ending': 'idle',
+                'error': 'idle'
+            }
+            face_state = face_state_map.get(status, 'idle')
+            self.face_animator.set_state(face_state)
 
     def add_message(self, message, tag='system'):
         """Add a message to the conversation display"""
@@ -187,8 +240,14 @@ class HowdyVoxUI:
 
     def quit_application(self):
         """Quit the application"""
+        # Stop face animation
+        if self.face_animator:
+            self.face_animator.cleanup()
+
+        # Terminate voice assistant process
         if self.process:
             self.process.terminate()
+
         self.root.quit()
 
     def check_queue(self):
