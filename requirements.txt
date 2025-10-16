@@ -15,6 +15,9 @@ pydub>=0.25.1
 # Image processing (for GIF-based face animations)
 Pillow>=10.0.0
 
+# Process name customization (for custom app name in dock/Activity Monitor)
+setproctitle>=1.3.0
+
 # macOS Native Voice Isolation (requires macOS 12.0+)
 pyobjc-core>=10.0; platform_system == "Darwin"
 pyobjc-framework-AVFoundation>=10.0; platform_system == "Darwin"

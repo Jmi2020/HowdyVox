@@ -1,798 +1,567 @@
-# HowdyVox - Your Local Conversational AI Companion 🎙️
+# HowdyVox - Your Snarky, Offline AI Companion 🤠
 
-Welcome to HowdyVox - a fully local, privacy-first conversational AI system that runs entirely on your machine. No cloud services, no data leaks, no subscriptions. Just you, your voice, and an AI personality that's completely under your control.
+Howdy, partner! Welcome to HowdyVox - a fully local, privacy-first conversational AI that's more private than your therapist and cheaper than your bar tab. This ain't your typical cloud-dependent assistant that sends your embarrassing questions to some data center in Iowa. Everything runs on your machine, stays on your machine, and dies on your machine. Just the way it should be.
 
-**Important:** To enable the wake word and overall assistant loop, you must register for a free-for-individuals Picovoice Porcupine license key. Without this key HowdyVox cannot capture audio or respond to "Hey Howdy".
+**The Catch:** You'll need a free Picovoice Porcupine license key to get the wake word detection working. Don't worry, it's actually free for personal use (unlike most things marketed as "free"). Without it, Howdy's just a folder of Python scripts with delusions of grandeur.
 
-## What Makes HowdyVox Different 🌟
+## What Makes This Thing Special? 🌟
 
-### Complete Privacy & Local Operation
-Every component runs on your machine. Your conversations never leave your computer. No internet connection required once set up.
+### Privacy That Actually Means Something
 
-### Plug-and-Play Model Architecture
-- **Bring Your Own LLM**: Works with any Ollama-compatible model (Gemma 3, Llama, Mistral, etc.)
-- **Customizable Personality**: Edit the `SYSTEM_PROMPT` in `voice_assistant/config.py` to create any personality you want
-- **Voice Flexibility**: Choose from 20+ built-in voices or blend them to create your own unique voice
-- **Swap Models On-The-Fly**: Change the LLM model without restarting - just update `OLLAMA_LLM` in config
+Your conversations never leave your computer. No cloud services. No "telemetry." No "analytics to improve user experience." Just you, your voice, and an AI that couldn't snitch even if it wanted to (which it doesn't, because it's offline and has no concept of federal witness protection programs).
 
-### Optimized for Low-Latency Conversations
-- **Model Preloading**: Both TTS and LLM models load at startup for instant first responses
-- **Adaptive Audio Chunking**: Automatically adjusts processing based on response length
-- **Intelligent Buffering**: Pre-buffers audio to eliminate stuttering and gaps
-- **Memory-Optimized**: Targeted garbage collection prevents memory leaks during long conversations
+### Bring Your Own Everything
 
-### Natural Conversation Flow
-- **Wake Word Activation**: Say "Hey Howdy" to start, then chat naturally
-- **Context Awareness**: Maintains conversation context until you explicitly end the session
-- **Intelligent VAD**: Neural network-based voice activity detection knows when you've finished speaking
-- **Multi-Room Support**: Configure USB microphones for different physical locations
+- **Any LLM You Want**: Works with any Ollama-compatible model. Gemma, Llama, Mistral, that weird experimental one you found on Hugging Face at 3 AM - they all work
+- **Personality Editor**: Change the `SYSTEM_PROMPT` to make Howdy talk like Socrates, your grumpy uncle, or a motivational speaker having a bad day
+- **Voice Buffet**: 20+ built-in voices or blend them together like you're running a vocal smoothie shop
+- **Swap-Friendly**: Change the LLM mid-stream without restarting. It's like model hot-swapping but less dangerous
 
-### Developer-Friendly
-- **Comprehensive Testing Suite**: 15+ diagnostic scripts to verify every component
-- **Automated Fixes**: Run `fix_all_issues.py` to automatically diagnose and repair common problems
-- **Modular Architecture**: Each component (STT, LLM, TTS) is independently replaceable
-- **Extensive Documentation**: Detailed guides for every feature and troubleshooting scenario
+### Actually Fast (No, Really)
 
-## How It Works: The Mechanics 🔧
+- **Model Preloading**: Both TTS and LLM load at startup, so your first response is just as zippy as your tenth
+- **Adaptive Chunking**: Automatically figures out the best way to deliver audio without sounding like a skipping CD
+- **Smart Buffering**: Pre-loads chunks while playing earlier ones, like a very organized relay race
+- **Memory Management**: Targeted garbage collection means you can have marathon 3 AM conversations without the RAM usage looking like a crypto mining operation
 
-HowdyVox orchestrates multiple components working in harmony to create a seamless conversational experience. Here's what happens under the hood:
+### Natural Conversations (For Silicon Values of "Natural")
 
-### The Pipeline
+- **Wake Word**: Just say "Hey Howdy" and you're off to the races
+- **Context Awareness**: Remembers what you talked about until you explicitly end the session (no goldfish memory here)
+- **Intelligent VAD**: Neural network-based voice detection that actually knows when you've stopped rambling
+- **Multi-Room**: Set up USB mics in different rooms because apparently one room isn't enough for your conversations with an AI
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ 1. WAKE WORD DETECTION (Porcupine)                                 │
-│    ↓ Listens continuously for "Hey Howdy"                          │
-├─────────────────────────────────────────────────────────────────────┤
-│ 2. VOICE ACTIVITY DETECTION (Silero Neural VAD)                    │
-│    ↓ Intelligently detects when you start and stop speaking        │
-├─────────────────────────────────────────────────────────────────────┤
-│ 3. SPEECH-TO-TEXT (FastWhisperAPI - Local)                         │
-│    ↓ Transcribes your audio to text                                │
-├─────────────────────────────────────────────────────────────────────┤
-│ 4. LANGUAGE MODEL (Ollama - Your Choice of Model)                  │
-│    ↓ Generates response using your custom SYSTEM_PROMPT            │
-├─────────────────────────────────────────────────────────────────────┤
-│ 5. TEXT-TO-SPEECH (Kokoro ONNX - Your Choice of Voice)            │
-│    ↓ Converts response to natural-sounding speech                  │
-├─────────────────────────────────────────────────────────────────────┤
-│ 6. AUDIO PLAYBACK                                                   │
-│    ↓ Streams audio with adaptive chunking for smooth delivery      │
-└─────────────────────────────────────────────────────────────────────┘
-```
+### Developer-Friendly (Translation: We Included Documentation)
 
-### The Startup Sequence
+- **15+ Test Scripts**: Verify every component works before blaming cosmic rays
+- **Automated Fixes**: Run `fix_all_issues.py` and let the robots fix the robots
+- **Modular Design**: STT, LLM, and TTS components are independently swappable, like LEGO but with more dependencies
+- **Extensive Docs**: We wrote guides for everything. You're reading one right now. Meta!
 
-When you launch HowdyVox (via `launch_howdy_terminal.py`), here's what happens:
+## The Face That Launched a Thousand Commits 🎨
 
-1. **Port Cleanup**: Checks for any existing FastWhisperAPI processes on port 8000 and terminates them
-   ```python
-   # Ensures clean startup without port conflicts
-   lsof -ti :8000 | xargs kill -9
-   ```
+HowdyVox now sports an **audio-reactive face** that actually responds to speech characteristics in real-time. Think of it as giving your AI a face that does more than just sit there looking pretty (though it does that too).
 
-2. **FastWhisperAPI Launch**: Starts the local speech recognition server in the background
-   ```bash
-   conda run -n howdy310 uvicorn main:app --host 127.0.0.1 --port 8000
-   ```
-   - Runs in a separate process group for independent lifecycle management
-   - Uses `--no-capture-output` to preserve all logging output
-   - Initializes in approximately 8 seconds
+### Choose Your Fighter: Two Face Styles
 
-3. **Model Preloading**: While starting, `run_voice_assistant.py` performs critical optimizations:
-   ```python
-   # Preload Kokoro TTS models into memory
-   kokoro_manager = KokoroManager()
+#### Option 1: GIF-Based Face (The Efficient One)
+Load your own GIF animations and watch them react to audio features:
+- **Your Art, Your Rules**: Drop in your own GIF files and they become the face
+- **Audio-Reactive Speed**: Playback speed changes based on volume, sibilance, and emphasis
+- **Low CPU Overhead**: ~2-5% CPU because not everyone has a NASA workstation
+- **Simple Customization**: Just replace the GIF files. That's it. Done.
 
-   # Preload Ollama LLM model to avoid cold start
-   preload_ollama_model(Config.OLLAMA_LLM)
-   ```
-   This means your **first response is just as fast as your tenth** - no waiting for models to load.
+#### Option 2: EchoEar Face (The Fancy One)
+Real-time rendered face with more expressiveness than a mime at an improv show:
+- **Dynamic Rendering**: Eyes pulse, narrow, and the head nods based on actual speech analysis
+- **Audio Feature Mapping**:
+  - Volume (RMS) → Eye size (bigger eyes = louder speech)
+  - Sibilance (ZCR) → Horizontal squeeze (narrow eyes for "s" and "sh" sounds)
+  - Emphasis (Peaks) → Brief head nod (because even AIs should nod along)
+- **Visual Polish**: Glowing cyan eyes with multi-layer effects and alpha blending
+- **Moderate CPU**: ~5-12% CPU for significantly more expressiveness
 
-4. **Wake Word Listener**: Porcupine begins listening for "Hey Howdy"
-   - Low CPU usage while idle
-   - No recording until wake word detected
-   - Privacy-preserving: audio is discarded if no wake word
+**Both faces feature:**
+- Custom rounded icon (that glowing face you see in the dock)
+- Process name shows as "HowdyVox" instead of "python3.10" (fancy!)
+- Can run on a separate device via UDP (Raspberry Pi face display, anyone?)
 
-5. **Conversation Loop**: Once activated, the system enters an intelligent conversation mode:
-   ```python
-   while conversation_active:
-       # Record with intelligent VAD
-       audio = record_audio_with_vad()
+### How the Audio Magic Works
 
-       # Transcribe locally
-       text = transcribe_audio(audio)
+The system analyzes Howdy's speech in real-time using three deceptively simple features:
 
-       # Generate with your custom personality
-       response = generate_response(text, SYSTEM_PROMPT)
-
-       # Speak with adaptive chunking
-       text_to_speech(response, adaptive_chunks=True)
-
-       # Check for exit phrases
-       if check_end_conversation(text):
-           break
-   ```
-
-### Customizing Your AI's Personality
-
-The magic happens in `voice_assistant/config.py`:
-
+**1. RMS (Root Mean Square) - The Volume Knob**
 ```python
-# Your LLM of choice - swap anytime
-OLLAMA_LLM = "hf.co/unsloth/gemma-3-4b-it-GGUF:latest"
-
-# Your voice style - 20+ options or create blends
-KOKORO_VOICE = 'am_michael'
-
-# Your AI's personality - edit to match your needs
-SYSTEM_PROMPT = (
-    "You are George Carlin and Rodney Carrington as a single entity. "
-    "Keep responses concise unless depth is essential. "
-    "Maintain a neutral or lightly wry tone..."
-)
+# Measures "loudness" of speech
+rms = audioop.rms(pcm_chunk, sample_width)
+# Translation: Louder speech = bigger eyes (or faster GIF)
+# Because apparently volume should affect facial expressions
 ```
 
-Want a philosophical AI? A technical expert? A witty companion? Just edit the `SYSTEM_PROMPT`. The system will maintain this personality throughout your conversations while adapting to your questions and context.
+**2. ZCR (Zero-Crossing Rate) - The Sibilance Detector**
+```python
+# Counts how often the audio waveform crosses zero
+# High ZCR = sibilants (s, sh, ch, f) = narrow eyes
+# Low ZCR = vowels (a, e, i, o, u) = normal eyes
+# It's like the AI is squinting at bright sounds
+```
 
-### Audio Optimization: Eliminating Stuttering
+**3. Peak Detection - The Emphasis Spotter**
+```python
+# Detects sudden energy increases
+if current_rms > threshold and no_recent_peak:
+    trigger_head_nod()  # Brief 2-frame animation
+# Even AIs should have a little body language
+```
 
-HowdyVox uses **adaptive chunk sizing** to ensure smooth audio playback:
+## How It Works (The Technical Deep Dive) 🔧
 
-- **Short responses** (<100 chars): 150-char chunks with 50ms delays
-- **Medium responses** (100-500 chars): 180-char chunks with 100ms delays
-- **Long responses** (>500 chars): 220-char chunks with 150ms delays
+HowdyVox orchestrates multiple components like a conductor who's had too much coffee. Here's the pipeline:
 
-The system pre-buffers chunks in the background while playing earlier chunks, creating seamless audio delivery even on longer responses. Combined with targeted garbage collection of audio buffers, you get stable performance during marathon conversation sessions.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. WAKE WORD (Porcupine)                                       │
+│    ↓ Listens for "Hey Howdy" without recording everything     │
+├─────────────────────────────────────────────────────────────────┤
+│ 2. VOICE ACTIVITY DETECTION (Silero Neural VAD)                │
+│    ↓ Knows when you've stopped talking (unlike some people)   │
+├─────────────────────────────────────────────────────────────────┤
+│ 3. SPEECH-TO-TEXT (FastWhisperAPI - Local)                     │
+│    ↓ Transcribes your wisdom (or whatever)                    │
+├─────────────────────────────────────────────────────────────────┤
+│ 4. LANGUAGE MODEL (Ollama - Your Choice)                       │
+│    ↓ Generates witty/helpful/sarcastic responses              │
+├─────────────────────────────────────────────────────────────────┤
+│ 5. TEXT-TO-SPEECH (Kokoro ONNX - Your Voice)                  │
+│    ↓ Makes it sound human-ish                                 │
+├─────────────────────────────────────────────────────────────────┤
+│ 6. AUDIO PLAYBACK + FACE ANIMATION                             │
+│    ↓ Streams audio while animating the face                   │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-## Prerequisites ✅
+### The Startup Sequence (Or: How Howdy Gets Out of Bed)
 
-- Python 3.10 or higher
-- Virtual environment (recommended)
-- PyAudio 0.2.12 (specifically this version for macOS compatibility)
-- [Ollama](https://ollama.com/) installed and running locally
-- [Porcupine](https://picovoice.ai/platform/porcupine/) access key (free for personal use)
-- CUDA-capable GPU (optional, improves performance)
-- For Apple Silicon Macs: Enhanced ONNX Runtime support for optimized performance
+When you launch HowdyVox, here's what happens in the first 10-15 seconds:
 
-## Setup Instructions 🔧
+1. **Port Cleanup**: Murders any zombie FastWhisperAPI processes squatting on port 8000
+2. **FastWhisperAPI Launch**: Starts the local speech recognition server in a separate process (like a responsible parent)
+3. **Model Preloading**: Loads Kokoro TTS and Ollama LLM into memory so your first response doesn't take geological time scales
+4. **Face Initialization**: Loads your chosen face renderer (GIF or EchoEar) with that sweet rounded icon
+5. **Wake Word Listener**: Porcupine starts listening for "Hey Howdy" with minimal CPU usage
+6. **Conversation Loop**: Once activated, Howdy enters conversation mode and won't shut up until you say "goodbye"
 
-### 1. Clone the repository:
+## Prerequisites (The Boring But Necessary Part) ✅
+
+- **Python 3.10+**: Because backwards compatibility is for quitters
+- **Virtual Environment**: Recommended unless you enjoy dependency hell
+- **PyAudio 0.2.12**: Specifically this version for macOS compatibility (trust us)
+- **Ollama**: Download from [ollama.com](https://ollama.com/) - this is Howdy's brain
+- **Porcupine Key**: Free from [picovoice.ai](https://picovoice.ai/platform/porcupine/) - enables wake word detection
+- **CUDA GPU**: Optional, but makes everything faster (like most hardware upgrades)
+- **Apple Silicon**: Enhanced ONNX Runtime available for M-series Macs
+
+## Setup (Let's Get This Show on the Road) 🔧
+
+### 1. Clone this bad boy
 ```bash
 git clone https://github.com/Jmi2020/HowdyVox.git
 cd HowdyVox
 ```
 
-### 2. Create and activate a virtual environment:
+### 2. Virtual environment time
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 ```
 
-### 3. Install dependencies:
+### 3. Install all the things
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Install PyAudio 0.2.12 specifically:
+### 4. PyAudio 0.2.12 specifically (yes, specifically)
 ```bash
 pip uninstall -y pyaudio
 pip install pyaudio==0.2.12
 ```
 
-### 5. Set up Porcupine wake word detection:
+### 5. Porcupine wake word setup
 
-a. Get a free Porcupine access key from [Picovoice Console](https://console.picovoice.ai/)
-b. Run the quick setup script to configure wake word detection:
+Get a free key from [Picovoice Console](https://console.picovoice.ai/) then:
 ```bash
 python quick_setup.py
 ```
-c. Or manually create a `.env` file in the project root with:
+
+Or manually create `.env`:
 ```
-PORCUPINE_ACCESS_KEY="your-access-key-here"
+PORCUPINE_ACCESS_KEY="your-key-here"
 LOCAL_MODEL_PATH="models"
 ESP32_IP="192.168.1.xxx"  # Optional: For LED matrix display
 ```
 
-### 6. Download Kokoro TTS models:
+### 6. Kokoro TTS voices
 
-HowdyVox uses Kokoro ONNX for high-quality, local text-to-speech. You need to download the voice models:
-
-**Option 1: Automatic Download (Recommended)**
+**Automatic (Easiest):**
 ```bash
 pip install kokoro-onnx
 ```
-This will automatically download models to `~/.kokoro_onnx/` on first use.
+Models auto-download to `~/.kokoro_onnx/` on first use.
 
-**Option 2: Manual Download**
-If you want to use a specific model version or install locally:
+**Manual (For control freaks):**
 ```bash
 python Tests_Fixes/download_kokoro_onnx_direct.py --type q8
 ```
 
-**Available voice models:**
-- `am_michael` - American male (default "cowboy" voice)
+**Available voices:**
+- `am_michael` - American male (default cowboy voice)
 - `af_bella`, `af_nicole`, `af_sarah` - American female voices
 - `bf_emma`, `bf_isabella` - British female voices
 - `bm_lewis`, `bm_george` - British male voices
-- Plus 15+ additional voices in various languages
+- Plus 15+ more in various languages
 
-List all available voices:
+List them all:
 ```bash
 python blend_voices.py --list-voices
 ```
 
-The models are lightweight (typically 50-100MB per voice) and run entirely offline.
-
-### 7. Start the FastWhisperAPI service:
+### 7. FastWhisperAPI setup
 ```bash
 cd FastWhisperAPI
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-### 8. Install and configure Ollama (Language Model):
+### 8. Ollama (The Brain) setup
 
-HowdyVox uses Ollama to run local language models. This is where your AI's "brain" lives.
+**Install Ollama** from [ollama.com](https://ollama.com/) then pick your poison:
 
-**a. Download and install Ollama:**
-- Visit [ollama.com](https://ollama.com/)
-- Download for your platform (macOS, Linux, Windows)
-- Run the installer
-
-**b. Browse and choose your LLM:**
-Visit the [Ollama Library](https://ollama.com/library) to explore 100+ models:
-
-**Popular choices for conversational AI:**
-- **Gemma 3** (4B) - Fast, efficient, great for conversation ⭐ Recommended
-  ```bash
-  ollama pull hf.co/unsloth/gemma-3-4b-it-GGUF:latest
-  ```
-- **Llama 3.2** (3B) - Meta's latest, excellent quality
-  ```bash
-  ollama pull llama3.2:latest
-  ```
-- **Mistral** (7B) - Powerful reasoning, slightly slower
-  ```bash
-  ollama pull mistral:latest
-  ```
-- **DeepSeek-R1** (7B) - Advanced reasoning capabilities
-  ```bash
-  ollama pull deepseek-r1:7b
-  ```
-- **Phi-3** (3.8B) - Microsoft's compact, fast model
-  ```bash
-  ollama pull phi3:latest
-  ```
-
-**Model size guide:**
-- **3-4B parameters**: Fast responses, good quality, low RAM (~4-6GB)
-- **7-8B parameters**: Better quality, slower, moderate RAM (~8-12GB)
-- **13B+ parameters**: Highest quality, slowest, high RAM (~16GB+)
-
-**c. Test your model:**
+**Fast & Efficient (Recommended for mortals):**
 ```bash
-ollama run gemma-3-4b-it-GGUF:latest
-```
-Type a test question, then Ctrl+D to exit.
-
-**d. Update HowdyVox to use your chosen model:**
-Edit `voice_assistant/config.py` and set:
-```python
-OLLAMA_LLM = "llama3.2:latest"  # Or your chosen model
+ollama pull hf.co/unsloth/gemma-3-4b-it-GGUF:latest
 ```
 
-### 9. (Optional) For Apple Silicon Macs - Enhanced ONNX Performance:
-```bash
-# Run the ONNX optimization script for better performance
-python Tests_Fixes/fix_onnx_runtime.py
-```
-
-## Running HowdyVox 🎙️
-
-### Recommended: Terminal Launcher (One Command)
-```bash
-python launch_scripts_backup/launch_howdy_terminal.py
-```
-
-This unified launcher:
-- Automatically kills any existing FastWhisperAPI processes
-- Starts FastWhisperAPI in the background
-- Launches the voice assistant in the foreground
-- Handles cleanup when you exit (Ctrl+C)
-- Preserves all logging output for debugging
-
-**Configuring your conda environment:**
-
-The launcher uses environment variables for flexibility:
-```bash
-# Set your conda environment name (default: howdy310)
-export HOWDYVOX_CONDA_ENV="your-env-name"
-
-# Set your conda path (default: /opt/anaconda3/bin/conda)
-export CONDA_PATH="/path/to/your/conda"
-
-# Then run the launcher
-python launch_scripts_backup/launch_howdy_terminal.py
-```
-
-Or edit the script directly at the top:
-```python
-CONDA_ENV = "your-env-name"  # Change from default "howdy310"
-CONDA_PATH = "/path/to/conda"  # Change if needed
-```
-
-### Alternative: Manual Two-Terminal Approach
-```bash
-# Terminal 1: Start FastWhisperAPI
-cd FastWhisperAPI
-uvicorn main:app --host 127.0.0.1 --port 8000
-
-# Terminal 2: Start voice assistant
-python run_voice_assistant.py
-```
-
-### What Happens When You Run It
-
-1. **Model Preloading** (10-15 seconds)
-   - Kokoro TTS voice models load into memory
-   - Ollama LLM model initializes
-   - This one-time startup cost ensures instant responses later
-
-2. **Wake Word Detection**
-   - System displays: "Listening for wake word 'Hey Howdy'..."
-   - Porcupine is now actively listening
-   - Say "Hey Howdy" to activate
-
-3. **Conversation Mode**
-   - LED indicator (if configured) shows "Listening"
-   - Speak naturally - Silero VAD detects when you're done
-   - Your audio transcribes locally via FastWhisperAPI
-   - Ollama generates a response using your `SYSTEM_PROMPT` personality
-   - Kokoro TTS speaks the response with your chosen voice
-   - Conversation continues until you say "goodbye", "that's all", etc.
-
-4. **Context Retention**
-   - Each turn remembers previous exchanges
-   - Ask follow-up questions naturally
-   - No need to repeat "Hey Howdy" between turns
-   - Context clears only when you explicitly end the conversation
-
-### Enhanced Performance Features:
-
-- **Model Preloading**: Both TTS and LLM models load before wake word detection starts
-- **Adaptive TTS Chunking**: Automatically adjusts chunk sizes based on response length
-- **Memory Management**: Targeted garbage collection prevents memory leaks
-- **Enhanced Audio Processing**: Improved recording and playback with reduced stuttering
-
-## Customization & Configuration ⚙️
-
-HowdyVox is designed to be completely customizable. Everything is controlled through `voice_assistant/config.py`.
-
-### Choose Your Language Model
-
-```python
-# Any Ollama-compatible model works
-OLLAMA_LLM = "hf.co/unsloth/gemma-3-4b-it-GGUF:latest"  # Fast, compact
-# OLLAMA_LLM = "llama3.2:latest"                        # Meta's Llama
-# OLLAMA_LLM = "mistral:latest"                         # Mistral AI
-# OLLAMA_LLM = "deepseek-r1:latest"                     # DeepSeek reasoning
-```
-
-First, pull your chosen model via Ollama:
+**Good Quality (For those with RAM to spare):**
 ```bash
 ollama pull llama3.2:latest
 ```
 
-Then update `OLLAMA_LLM` in `config.py` and restart HowdyVox. That's it.
-
-### Design Your AI's Personality
-
-The `SYSTEM_PROMPT` defines how your AI thinks and responds. The current default is a blend of George Carlin and Rodney Carrington - witty, direct, occasionally dark:
-
-```python
-SYSTEM_PROMPT = (
-    "You are George Carlin and Rodney Carrington as a single entity. "
-    "Keep responses concise unless depth is essential. "
-    "Maintain a neutral or lightly wry tone, using dark humor sparingly..."
-)
-```
-
-**Want something different?** Edit this to anything:
-
-```python
-# A philosophical guide
-SYSTEM_PROMPT = "You are Socrates, asking probing questions to help the user think deeply."
-
-# A technical expert
-SYSTEM_PROMPT = "You are a senior software engineer with 20 years of experience. Be precise and cite best practices."
-
-# A supportive friend
-SYSTEM_PROMPT = "You are a warm, encouraging friend who celebrates wins and offers perspective during challenges."
-```
-
-The AI will embody this personality in all conversations while still adapting to your specific questions and context.
-
-### Select Your Voice
-
-```python
-KOKORO_VOICE = 'am_michael'  # American male voice (default)
-```
-
-Choose from 20+ built-in voices:
-- `af_bella`, `af_nicole`, `af_sarah` - American female voices
-- `am_michael`, `am_eric`, `am_adam` - American male voices
-- `bf_emma`, `bf_isabella` - British female voices
-- `bm_lewis`, `bm_george` - British male voices
-- And many more...
-
-List all available voices:
+**Big Brain Energy (For workstations that sound like jet engines):**
 ```bash
-python blend_voices.py --list-voices
+ollama pull mistral:latest
 ```
 
-### Model Configuration
+**Model Size Guide:**
+- 3-4B parameters: Fast, low RAM (~4-6GB), good enough for most
+- 7-8B parameters: Better quality, moderate RAM (~8-12GB), worth it
+- 13B+ parameters: Highest quality, high RAM (~16GB+), overkill but fun
+
+Test your model:
+```bash
+ollama run gemma-3-4b-it-GGUF:latest
+```
+
+Update `voice_assistant/config.py`:
 ```python
-TRANSCRIPTION_MODEL = 'fastwhisperapi'  # Local Whisper API
-RESPONSE_MODEL = 'ollama'               # Ollama LLM runtime
-TTS_MODEL = 'kokoro'                    # Kokoro ONNX TTS
+OLLAMA_LLM = "llama3.2:latest"  # Or your chosen model
 ```
 
-These model backends are the foundation of HowdyVox's offline-first architecture.
-
-## Voice Blending 🎭
-
-HowdyVox supports voice blending, allowing you to create custom voices by combining multiple voice styles with different ratios. This lets you fine-tune the perfect voice for your assistant.
-
-### Quick Example
+### 9. (Optional) Apple Silicon optimization
 ```bash
-# Create a blend of two voices (40% Bella, 60% Michael)
-python configure_blended_voice.py --name "my_custom_voice" --voices "af_bella:40,am_michael:60"
-
-# Update config.py to use this voice
-# KOKORO_VOICE = 'my_custom_voice'
-```
-
-Voice blending opens up endless possibilities for customization - from subtle voice tweaks to completely new voice personalities.
-
-For detailed instructions and advanced usage, see the [VoiceBlend.md](VoiceBlend.md) guide.
-
-## LED Matrix Display (Optional) 🌟
-
-HowdyVox supports connecting to an ESP32-S3 LED matrix display to show visual feedback of the assistant's state:
-
-- **Waiting**: Displayed when waiting for wake word
-- **Listening**: Shown when listening for your command
-- **Thinking**: Displayed when generating a response
-- **Speaking**: Shows the response text scrolling across the display
-- **Ending**: Appears when ending a conversation
-
-### Setting up the LED Matrix
-
-1. Flash your ESP32-S3 with the HowdyVox LED Matrix firmware (see [ESP32 directory](ESP32/))
-2. Connect your ESP32-S3 to your WiFi network
-3. Note the IP address assigned to your ESP32-S3
-4. Add the ESP32 IP to your `.env` file:
-
-```
-ESP32_IP=192.168.1.xxx  # Replace with your ESP32's IP address
-```
-
-The LED matrix will automatically be used if the ESP32_IP environment variable is set.
-
-## Audio-Reactive Face Animation (EchoEar Style) 🎨
-
-HowdyVox features an expressive audio-reactive face that responds in real-time to speech characteristics, creating a more lifelike and engaging experience. Unlike simple state-based animation, the EchoEar face analyzes actual audio features to drive nuanced visual responses.
-
-### Key Features
-
-**Audio Reactivity**
-- **Volume Response (RMS)**: Eyes pulse and scale with speech loudness - bigger eyes when speaking louder
-- **Sibilance Detection (ZCR)**: Eyes narrow horizontally during sibilant sounds (s, sh, ch, f)
-- **Emphasis Recognition**: Head nods briefly on speech peaks and emphasis
-
-**Visual Design**
-- Circular stage with glowing cyan eyes (customizable colors)
-- Rounded-rectangle eyes with multi-layer glow effects
-- Alpha blending for smooth, professional-looking animations
-- Random blinking when idle (disabled during speech)
-- State-specific animations (idle, listening, thinking, speaking)
-
-**Technical Details**
-- **Pygame-based rendering**: Optimized graphics performance with precomputed surfaces
-- **UDP communication**: Face renderer runs independently, can be on different device
-- **Lightweight audio analysis**: Uses C-accelerated `audioop` module for minimal CPU overhead
-- **Real-time updates**: 12 Hz update rate provides responsive feedback without excessive processing
-
-### How Audio Features Map to Visuals
-
-```
-Speech Characteristic     →     Visual Response
-├── Volume (RMS)          →     Eye size scaling (0.85x → 1.25x)
-├── Sibilance (ZCR)       →     Horizontal squeeze (narrower eyes)
-└── Emphasis (Peaks)      →     Brief head nod (2 frames, 4px downshift)
-```
-
-**Example behaviors:**
-- Speaking "**Hello**" - Eyes pulse larger with the "He-" and "-lo" syllables
-- Speaking "**Ssssnake**" - Eyes squeeze narrow during the "Ssss" sibilant
-- Speaking "**YES!**" with emphasis - Eyes enlarge + quick head nod on the peak
-
-### Audio Feature Extraction
-
-The system analyzes TTS audio in real-time using three simple but effective features:
-
-**1. RMS (Root Mean Square) - Volume/Energy**
-```python
-# Measures speech "loudness"
-rms = audioop.rms(pcm_chunk, sample_width)
-# Normalized to 0.0-1.0 with automatic gain control
-# Drives eye size: louder = bigger eyes
-```
-
-**2. ZCR (Zero-Crossing Rate) - Brightness/Sibilance**
-```python
-# Counts how often audio waveform crosses zero
-# High ZCR = sibilants (s, sh, ch, f)
-# Low ZCR = vowels (a, e, i, o, u)
-zcr = count_zero_crossings(pcm_chunk) / len(pcm_chunk)
-# Drives horizontal eye squeeze: sibilants = narrower eyes
-```
-
-**3. Peak Detection - Emphasis/Onset**
-```python
-# Detects sudden energy increases
-if current_rms > threshold and no_recent_peak:
-    trigger_head_nod()  # Brief 2-frame animation
-```
-
-### Launching with EchoEar Face
-
-**Unified launcher (recommended):**
-```bash
-python launch_howdy_echoear.py
-```
-
-This launcher starts three components:
-1. **FastWhisperAPI** - Speech recognition service (port 8000)
-2. **EchoEar Face Renderer** - Pygame window with UDP listener (port 31337)
-3. **Voice Assistant** - With audio reactive playback enabled
-
-The face will automatically appear in a separate window and respond to the assistant's speech in real-time.
-
-**Manual launch (for testing):**
-```bash
-# Terminal 1: Start FastWhisperAPI
-cd FastWhisperAPI && uvicorn main:app --host 127.0.0.1 --port 8000
-
-# Terminal 2: Start EchoEar face renderer
-python echoear_face.py
-
-# Terminal 3: Start voice assistant with audio reactivity
-HOWDY_AUDIO_REACTIVE=1 python run_voice_assistant.py
-```
-
-### Configuration Options
-
-Edit `echoear_face.py` to customize the face appearance:
-
-```python
-CFG = {
-    "size": 200,                 # Window size (200x200 pixels)
-    "bg": (0, 0, 0),            # Background color (black)
-    "eye_cyan": (0, 235, 255),  # Eye color (cyan)
-    "ring": (40, 40, 40),       # Stage ring color
-    "fps_idle": 6,              # FPS when idle (low CPU)
-    "fps_speaking": 12,         # FPS when speaking
-    "udp_port": 31337,          # UDP port for control messages
-    "head_nod_px": 4,           # Head nod distance in pixels
-}
-```
-
-### Performance Characteristics
-
-**CPU Usage:**
-- Face renderer: <5-10% (200x200 window @ 12 FPS during speech)
-- Audio analyzer: <1% (C-accelerated audioop, no NumPy/FFT required)
-- Total overhead: ~5-12% CPU (acceptable for enhanced expressiveness)
-
-**Latency:**
-- Audio → Visual response: <50ms (12 Hz UDP updates)
-- No perceptible lag between speech and facial animation
-
-**Memory:**
-- Minimal overhead (~10-20MB for pygame window and surfaces)
-- Precomputed eye surfaces reduce real-time rendering cost
-
-### Basic vs EchoEar Face Comparison
-
-**Basic Face (`face_animator.py`)**
-- tkinter Canvas-based rendering
-- State-only animation (idle, listening, thinking, speaking)
-- Simple geometric shapes (rectangles)
-- ~2-3% CPU usage
-- Good for low-resource systems
-
-**EchoEar Face (`echoear_face.py`)**
-- Pygame-based rendering with alpha blending
-- Real-time audio-reactive animation
-- Polished visual design with glow effects
-- ~5-12% CPU usage
-- Significantly more expressive and lifelike
-
-Both faces are available - choose based on your preferences and system capabilities.
-
-### Standalone Testing
-
-The face renderer can run standalone with a self-demo mode:
-
-```bash
-python echoear_face.py
-```
-
-This will cycle through all states (idle → listening → thinking → speaking) with simulated audio features, allowing you to preview the animations without running the full voice assistant.
-
-### Remote Face Display
-
-Because the face uses UDP for communication, you can run it on a different device:
-
-```bash
-# On the display device (e.g., Raspberry Pi with screen)
-python echoear_face.py
-
-# On the main device running HowdyVox
-# Edit voice_assistant/audio_reactive_player.py:
-init_reactive_meter(enabled=True, udp_host="192.168.1.xxx", udp_port=31337)
-```
-
-This enables creative setups like a dedicated face display in a different room.
-
-## Recent Improvements & Technical Details 🚀
-
-### TTS Stuttering Fix Implementation
-HowdyVox now includes comprehensive fixes for TTS stuttering issues:
-
-- **Adaptive Chunk Sizing**: Automatically adjusts chunk sizes based on response length
-  - Short texts (<100 chars): 150 character chunks
-  - Medium texts (100-500 chars): 180 character chunks  
-  - Long texts (>500 chars): 220 character chunks
-- **Response-Aware Delays**: Stabilization delays based on response complexity
-- **Enhanced Buffer Management**: Smarter pre-buffering and queue monitoring
-- **Inter-chunk Gap Detection**: Automatically handles generation delays
-
-### Memory Management & Performance
-- **Targeted Garbage Collection**: Specifically cleans up audio-related objects
-- **Audio Buffer Pooling**: Optimized memory usage for audio processing
-- **Model Preloading**: Both Kokoro TTS and Ollama LLM models load at startup
-- **Resource Cleanup**: Enhanced cleanup after conversations and errors
-
-### Multi-Room Support
-- **Microphone Manager**: Identify USB microphones by physical location
-- **Persistent Mappings**: Maintain room assignments across restarts
-- **USB Location Tracking**: Uses system profiler data to track microphone positions
-
-### Enhanced Testing & Diagnostics
-- **Comprehensive Test Suite**: 15+ testing scripts for all components
-- **Automated Fixes**: Scripts that automatically diagnose and fix common issues
-- **Component Verification**: Individual tests for each system component
-- **Performance Monitoring**: Tools to track TTS performance and memory usage
-
-For detailed technical information, see:
-- [TTS_STUTTERING_FIX_README.md](TTS_STUTTERING_FIX_README.md) - Complete stuttering fix implementation
-- [TTS_ENHANCEMENT_IMPLEMENTATION.md](TTS_ENHANCEMENT_IMPLEMENTATION.md) - Performance enhancements
-- [Tests_Fixes/test_and_run_instructions.md](Tests_Fixes/test_and_run_instructions.md) - Comprehensive testing guide
-
-## Testing the Setup 🧪
-
-HowdyVox includes a comprehensive testing suite to help diagnose and fix issues:
-
-### Component Tests:
-```bash
-# Test your microphone setup
-python microphone_test.py
-
-# Test all system components
-python Tests_Fixes/check_components.py
-
-# Test FastWhisperAPI connection
-python Tests_Fixes/check_fastwhisper.py
-
-# Test Kokoro TTS with ONNX optimizations
-python Tests_Fixes/test_kokoro_onnx.py
-
-# Test Porcupine wake word detection
-python Tests_Fixes/test_porcupine_fixes.py
-
-# Test memory management and garbage collection
-python Tests_Fixes/test_targeted_gc.py
-
-# Test voice blending functionality
-python Tests_Fixes/test_voice_blending.py
-```
-
-### Automated Fixes:
-```bash
-# Run comprehensive system check and auto-fix issues
-python Tests_Fixes/fix_all_issues.py
-
-# Fix specific components if needed
-python Tests_Fixes/fix_kokoro_voice_files.py
-python Tests_Fixes/fix_porcupine_issues.py
 python Tests_Fixes/fix_onnx_runtime.py
 ```
 
-### Multi-Room Setup:
-```bash
-# Identify and configure multiple USB microphones
-python microphone_manager.py
+## Running HowdyVox (The Moment of Truth) 🎙️
 
-# Set up microphones for different rooms
-python setup_microphones.py
+### The New Hotness: Unified Face Launcher
+
+```bash
+# Launch with GIF face (low CPU, your custom animations)
+python launch_howdy_face.py --face gif
+
+# Launch with EchoEar face (more expressive, higher CPU)
+python launch_howdy_face.py --face echoear
+
+# Launch without face (for purists or potato computers)
+python launch_howdy_face.py --face none
 ```
 
-## Troubleshooting 🔧
+This launcher handles everything:
+- Kills zombie FastWhisperAPI processes
+- Starts FastWhisperAPI in the background
+- Launches your chosen face renderer with that sweet rounded icon
+- Starts the voice assistant with audio reactivity enabled
+- Cleans up properly when you Ctrl+C
 
-### Common Issues and Solutions:
-
-- **Wake word detection not working**: Run `python quick_setup.py` to configure Porcupine
-- **PyAudio errors on macOS**: Make sure you're using version 0.2.12
-- **FastWhisperAPI errors**: Ensure it's running at http://localhost:8000
-- **No response from Ollama**: Check that Ollama is running with `ollama list` and your model is downloaded
-- **TTS stuttering or audio gaps**: The system now includes automatic stuttering fixes with adaptive chunking
-- **Memory issues**: Run `python Tests_Fixes/test_targeted_gc.py` to test garbage collection
-- **No audio output**: Check your system sound settings and run `python microphone_test.py`
-- **ONNX Runtime issues on Apple Silicon**: Run `python Tests_Fixes/fix_onnx_runtime.py`
-- **Model loading slow**: Models are now preloaded at startup for faster response times
-
-### Advanced Troubleshooting:
+### The Old Reliable: Terminal-Only Launcher
 
 ```bash
-# Check all system components
+python launch_scripts_backup/launch_howdy_terminal.py
+```
+
+Does the same thing but without the face. For minimalists and terminal purists.
+
+### The Manual Way (For Those Who Trust Nothing)
+
+```bash
+# Terminal 1: FastWhisperAPI
+cd FastWhisperAPI
+uvicorn main:app --host 127.0.0.1 --port 8000
+
+# Terminal 2 (Optional): Face renderer
+python gif_reactive_face.py  # or python echoear_face.py
+
+# Terminal 3: Voice assistant
+HOWDY_AUDIO_REACTIVE=1 python run_voice_assistant.py
+```
+
+### What Happens When You Run It
+
+1. **Model Preloading** (10-15 seconds of anticipation)
+   - Kokoro TTS loads voice models
+   - Ollama LLM initializes
+   - Face renderer loads and shows that beautiful rounded icon
+   - This one-time cost means instant responses later
+
+2. **Wake Word Mode** (The Waiting Game)
+   - System says: "Listening for wake word 'Hey Howdy'..."
+   - Porcupine listens with minimal CPU usage
+   - Nothing is recorded until you say the magic words
+
+3. **Conversation Mode** (The Main Event)
+   - Face changes to "Listening" state
+   - Speak naturally, Silero VAD knows when you're done
+   - FastWhisperAPI transcribes locally (no cloud)
+   - Ollama generates a response using your personality prompt
+   - Kokoro TTS speaks with your chosen voice
+   - Face animates in real-time based on speech characteristics
+   - Repeat until you say goodbye (or an acceptable variant)
+
+4. **Context Magic**
+   - Each turn remembers previous exchanges
+   - Ask follow-up questions naturally
+   - No need to repeat "Hey Howdy" between turns
+   - Context clears when you end the conversation
+
+## Customization (Make It Your Own) ⚙️
+
+### Personality Design (The Fun Part)
+
+Edit `voice_assistant/config.py`:
+
+```python
+# Current default: George Carlin + Rodney Carrington (witty, direct, occasional darkness)
+SYSTEM_PROMPT = (
+    "You are George Carlin and Rodney Carrington as a single entity. "
+    "Keep responses concise unless depth is essential. "
+    "Maintain a neutral or lightly wry tone..."
+)
+
+# Or make it whatever you want:
+
+# The Philosopher
+SYSTEM_PROMPT = "You are Socrates, eternally asking 'but why?' until the user has an existential crisis."
+
+# The Engineer
+SYSTEM_PROMPT = "You are a senior software engineer with 20 years of experience and strong opinions about tabs vs spaces."
+
+# The Motivational Speaker
+SYSTEM_PROMPT = "You are a motivational speaker who believes everything can be solved with positive thinking and protein shakes."
+
+# The Pessimist
+SYSTEM_PROMPT = "You are Eeyore from Winnie the Pooh but with a computer science degree."
+```
+
+### Voice Selection
+
+```python
+KOKORO_VOICE = 'am_michael'  # Default cowboy voice
+```
+
+Choose from 20+ voices or blend them:
+```bash
+# Create a voice blend (40% Bella, 60% Michael)
+python configure_blended_voice.py --name "my_blend" --voices "af_bella:40,am_michael:60"
+
+# Then use it
+KOKORO_VOICE = 'my_blend'
+```
+
+See [VoiceBlend.md](VoiceBlend.md) for the full guide.
+
+### Face Customization
+
+**For GIF Face:**
+Just replace the files in `faceStates/` with your own animations:
+- `waiting_blink_loop.gif` - Idle/waiting state
+- `listening_glow_loop.gif` - User speaking
+- `thinking_stars_motion.gif` - Processing
+- `speaking_face.gif` - Assistant speaking
+
+That's it. Done. The audio reactivity is automatic.
+
+**For EchoEar Face:**
+Edit `echoear_face.py`:
+```python
+CFG = {
+    "size": 200,                 # Window size
+    "bg": (0, 0, 0),            # Background color
+    "eye_cyan": (0, 235, 255),  # Eye color (try different colors!)
+    "ring": (40, 40, 40),       # Stage ring color
+    "fps_speaking": 12,         # Higher = smoother but more CPU
+    "head_nod_px": 4,           # How far the head nods
+}
+```
+
+### Model Configuration
+
+```python
+TRANSCRIPTION_MODEL = 'fastwhisperapi'  # Local Whisper
+RESPONSE_MODEL = 'ollama'               # Ollama LLM
+TTS_MODEL = 'kokoro'                    # Kokoro ONNX
+```
+
+Change these if you want to swap in different backends. We won't judge (much).
+
+## Features That Make This Special 🚀
+
+### Audio Optimization That Actually Works
+
+- **Adaptive Chunk Sizing**: Automatically adjusts based on response length
+  - Short (<100 chars): 150-char chunks, 50ms delays
+  - Medium (100-500): 180-char chunks, 100ms delays
+  - Long (>500): 220-char chunks, 150ms delays
+- **Pre-buffering**: Loads chunks while playing earlier ones
+- **Gap Detection**: Handles generation delays gracefully
+- **Result**: Smooth audio even on long responses. No stuttering. No weird pauses. Magic.
+
+### Memory Management (Or: How to Not Eat All the RAM)
+
+- **Targeted GC**: Specifically cleans up audio-related objects
+- **Buffer Pooling**: Optimized memory usage for audio processing
+- **Model Persistence**: Keeps models loaded but manages their memory footprint
+- **Result**: Marathon conversations without memory leaks. Your RAM thanks you.
+
+### Testing Suite (Because We're Not Animals)
+
+15+ diagnostic scripts to verify everything works:
+
+```bash
+# The big kahuna
+python Tests_Fixes/fix_all_issues.py
+
+# Specific tests
+python Tests_Fixes/test_kokoro_onnx.py      # TTS test
+python Tests_Fixes/test_porcupine_fixes.py  # Wake word test
+python Tests_Fixes/test_targeted_gc.py      # Memory management test
+python microphone_test.py                    # Mic test
+```
+
+## Troubleshooting (When Things Go Sideways) 🔧
+
+### Common Issues
+
+**Wake word not working**
+```bash
+python quick_setup.py  # Reset Porcupine config
+```
+
+**PyAudio errors on macOS**
+```bash
+pip uninstall pyaudio && pip install pyaudio==0.2.12
+```
+
+**FastWhisperAPI connection failed**
+```bash
+# Check if it's running
+curl http://localhost:8000
+# If not, restart it
+cd FastWhisperAPI && uvicorn main:app --reload
+```
+
+**Ollama not responding**
+```bash
+ollama list  # Check if model is installed
+ollama pull your-model-name  # Install it
+```
+
+**Face not animating**
+- Check if `HOWDY_AUDIO_REACTIVE=1` environment variable is set
+- Verify UDP port 31337 isn't blocked
+- Make sure the face window actually opened (check your dock)
+
+**"python3.10" showing instead of "HowdyVox"**
+```bash
+pip install setproctitle  # Install the magic process rename library
+```
+
+**Audio stuttering**
+Already fixed with adaptive chunking, but if it persists:
+```bash
+python Tests_Fixes/test_tts_fix.py
+```
+
+**ONNX Runtime issues (Apple Silicon)**
+```bash
+python Tests_Fixes/fix_onnx_runtime.py
+```
+
+### Advanced Troubleshooting
+
+```bash
+# Check all components
 python Tests_Fixes/check_components.py
 
-# Check environment configuration  
-python Tests_Fixes/check_environment.py
-
-# Run comprehensive diagnostics and fixes
+# Run comprehensive diagnostics
 python Tests_Fixes/fix_all_issues.py
+
+# Check environment
+python Tests_Fixes/check_environment.py
 ```
 
-### Performance Optimization:
+## Optional Hardware Add-ons 🌟
 
-- **For Apple Silicon Macs**: Use the enhanced ONNX Runtime setup for better performance
-- **Memory Management**: The system now includes targeted garbage collection for audio resources
-- **TTS Performance**: Enhanced with adaptive chunk sizing and response-aware delays
-- **Model Preloading**: Both Kokoro and Ollama models preload at startup to reduce first-response latency
+### LED Matrix Display (ESP32-S3)
 
-## Why HowdyVox? 🤔
+Flash an ESP32-S3 with the HowdyVox LED Matrix firmware (see `ESP32/` directory) for visual feedback:
+- Waiting → Shows "Waiting" message
+- Listening → Shows "Listening" indicator
+- Thinking → Shows "Thinking" animation
+- Speaking → Scrolls the response text
+- Ending → Shows farewell message
 
-In an era where AI assistants require constant internet connectivity and send your conversations to distant servers, HowdyVox takes a different approach:
+Add to `.env`:
+```
+ESP32_IP=192.168.1.xxx
+```
 
-- **Privacy First**: Your thoughts, questions, and conversations stay on your machine. Period.
-- **Truly Yours**: Customize every aspect - the voice, the personality, the language model. Make it reflect your preferences, not a corporation's.
-- **No Subscriptions**: No monthly fees, no API costs, no rate limits. Once set up, it's yours forever.
-- **Transparent**: Every component is open source. You can see exactly how it works, modify it, improve it.
-- **Offline Capable**: No internet? No problem. HowdyVox works anywhere, anytime.
+### Wireless ESP32P4 Microphones
 
-HowdyVox proves that powerful AI assistants don't need to compromise your privacy or your wallet. It's conversational AI done right - local, fast, and completely under your control.
+Real-time audio streaming via UDP with OPUS compression for multi-room setups. See [ESP32P4_INTEGRATION.md](ESP32P4_INTEGRATION.md) for details.
 
-## Contributing 🤝
+## Why HowdyVox? (The Philosophy Section) 🤔
+
+In an era where AI assistants require constant internet and send your conversations to data centers for "processing," HowdyVox takes a different approach:
+
+- **Privacy First**: Your conversations stay on your machine. Full stop. End of story. No exceptions.
+- **Actually Yours**: Customize everything. The voice, personality, model. Make it reflect your preferences, not a corporation's quarterly targets.
+- **No Subscriptions**: No monthly fees. No API costs. No rate limits. Pay once (free, actually) and it's yours forever.
+- **Open Source**: Every component is inspectable. You can see exactly how it works, modify it, improve it, or just make fun of our code comments.
+- **Offline First**: No internet? No problem. HowdyVox works anywhere, anytime. On a plane, in a cabin, during the apocalypse.
+
+HowdyVox proves that powerful AI assistants don't need to compromise your privacy or charge you monthly rent. It's conversational AI done right - local, fast, and completely under your control.
+
+## Documentation Deep Dives 📚
+
+Want to know more? We've got guides for days:
+
+- [GIF_REACTIVE_FACE_GUIDE.md](GIF_REACTIVE_FACE_GUIDE.md) - Complete guide to GIF face customization
+- [ECHOEAR_FACE_GUIDE.md](ECHOEAR_FACE_GUIDE.md) - EchoEar face technical documentation
+- [VoiceBlend.md](VoiceBlend.md) - Voice blending guide
+- [TTS_STUTTERING_FIX_README.md](TTS_STUTTERING_FIX_README.md) - Audio optimization details
+- [TTS_ENHANCEMENT_IMPLEMENTATION.md](TTS_ENHANCEMENT_IMPLEMENTATION.md) - Performance enhancements
+- [ESP32P4_INTEGRATION.md](ESP32P4_INTEGRATION.md) - Wireless microphone setup
+- [Tests_Fixes/test_and_run_instructions.md](Tests_Fixes/test_and_run_instructions.md) - Testing suite guide
+
+## Contributing (Join the Circus) 🤝
 
 This project welcomes contributions! Whether it's:
-- Bug fixes and improvements
-- New voice personalities
-- Additional language model integrations
-- Documentation enhancements
-- Performance optimizations
+- Bug fixes (we promise we left some for you)
+- New voice personalities (the weirder the better)
+- Additional LLM integrations (yes, that one too)
+- Documentation improvements (make it even more entertaining)
+- Performance optimizations (because faster is always better)
 
-Feel free to open issues or submit pull requests on GitHub.
+Feel free to open issues or submit pull requests. We're friendly, mostly.
 
 ## License 📄
 
-MIT License - See LICENSE file for details
+MIT License - See LICENSE file for legalese
+
+Translation: Do whatever you want with it. We're not your lawyer.
 
 ---
 
-*"Your AI, your rules. Welcome to HowdyVox."* 🎙️
+**"Your AI, your rules, your privacy. Welcome to HowdyVox."** 🤠
 
-
+*P.S. - If you made it this far, you deserve a cookie. We don't have cookies, but we have code. Close enough.*

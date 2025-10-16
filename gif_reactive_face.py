@@ -12,6 +12,13 @@ import queue
 import time
 import os
 
+# Set process name for macOS dock/Activity Monitor
+try:
+    import setproctitle
+    setproctitle.setproctitle("HowdyVox")
+except ImportError:
+    pass  # setproctitle not available, will show as python3.10
+
 # Configuration
 CFG = {
     "size": 200,                    # Display window size (will scale GIFs)
@@ -167,6 +174,22 @@ class AudioReactiveGifFace:
         self.size = size
         self.screen = pg.display.set_mode((size, size))
         pg.display.set_caption("HowdyVox — Audio-Reactive Face")
+
+        # Set custom window icon (rounded version)
+        try:
+            icon_path = os.path.join(os.path.dirname(__file__), "assets", "glowface_rounded.png")
+            if os.path.exists(icon_path):
+                icon = pg.image.load(icon_path)
+                pg.display.set_icon(icon)
+            else:
+                # Fallback to non-rounded version
+                icon_path = os.path.join(os.path.dirname(__file__), "assets", "glowface.png")
+                if os.path.exists(icon_path):
+                    icon = pg.image.load(icon_path)
+                    pg.display.set_icon(icon)
+        except Exception as e:
+            print(f"Could not load window icon: {e}")
+
         self.clock = pg.time.Clock()
 
         # State management
