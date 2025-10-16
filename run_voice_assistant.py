@@ -14,6 +14,12 @@ from voice_assistant.response_generation import generate_response, preload_ollam
 from voice_assistant.text_to_speech import text_to_speech, get_next_chunk, get_chunk_generation_stats, generation_complete
 from voice_assistant.utils import delete_file, targeted_gc
 from voice_assistant.config import Config
+
+# Audio-reactive face support
+AUDIO_REACTIVE_ENABLED = os.getenv("HOWDY_AUDIO_REACTIVE", "0") == "1"
+if AUDIO_REACTIVE_ENABLED:
+    from voice_assistant.audio_reactive_player import init_reactive_meter, play_audio_reactive, send_state
+    logging.info("Audio-reactive face enabled")
 from voice_assistant.api_key_manager import get_transcription_api_key, get_response_api_key, get_tts_api_key
 from voice_assistant.kokoro_manager import KokoroManager
 from voice_assistant.led_matrix_controller import LEDMatrixController
@@ -116,6 +122,21 @@ def update_led_state(state, text=None):
             logging.debug(f"LED update failed: {e}")
             led_matrix.enabled = False
 
+    # Send state to audio-reactive face if enabled
+    if AUDIO_REACTIVE_ENABLED:
+        try:
+            state_map = {
+                'waiting': 'idle',
+                'listening': 'listening',
+                'thinking': 'thinking',
+                'speaking': 'speaking',
+                'ending': 'idle'
+            }
+            face_state = state_map.get(state, 'idle')
+            send_state(face_state)
+        except Exception as e:
+            logging.debug(f"Face state update failed: {e}")
+
 def check_end_conversation(text):
     """
     Use simple pattern matching to determine if the user wants to end the conversation.
@@ -209,8 +230,11 @@ def play_greeting_and_clear_flag(greeting_text):
         )
 
         if success and audio_file:
-            # Play the greeting
-            play_audio(audio_file)
+            # Play the greeting (with audio reactivity if enabled)
+            if AUDIO_REACTIVE_ENABLED:
+                play_audio_reactive(audio_file)
+            else:
+                play_audio(audio_file)
             # Clean up the file
             delete_file(audio_file)
         else:
@@ -417,6 +441,15 @@ def main():
     except Exception as e:
         print(Fore.RED + f"Warning: Failed to preload Kokoro TTS model: {e}" + Fore.RESET)
         print(Fore.YELLOW + "Will attempt to load on first use" + Fore.RESET)
+
+    # Initialize audio-reactive face system if enabled
+    if AUDIO_REACTIVE_ENABLED:
+        print(Fore.YELLOW + "Initializing audio-reactive face system..." + Fore.RESET)
+        try:
+            init_reactive_meter(enabled=True, udp_host="127.0.0.1", udp_port=31337)
+            print(Fore.GREEN + "Audio-reactive face system ready (UDP port 31337)" + Fore.RESET)
+        except Exception as e:
+            print(Fore.RED + f"Warning: Failed to initialize audio-reactive system: {e}" + Fore.RESET)
     
     # Preload Ollama model
     print(Fore.YELLOW + "Initializing Ollama LLM model..." + Fore.RESET)
@@ -580,7 +613,10 @@ def main():
                     if success:
                         # Brief delay to prevent TTS stuttering on immediate feedback
                         time.sleep(0.1)
-                        play_audio(first_chunk_file)
+                        if AUDIO_REACTIVE_ENABLED:
+                            play_audio_reactive(first_chunk_file)
+                        else:
+                            play_audio(first_chunk_file)
                         delete_file(first_chunk_file)
                     continue
                 else:
@@ -621,7 +657,10 @@ def main():
                 if success:
                     # Brief delay to prevent TTS stuttering on conversation end
                     time.sleep(0.1)
-                    play_audio(first_chunk_file)
+                    if AUDIO_REACTIVE_ENABLED:
+                        play_audio_reactive(first_chunk_file)
+                    else:
+                        play_audio(first_chunk_file)
                     delete_file(first_chunk_file)
                 
                 # End the conversation
@@ -718,7 +757,10 @@ def main():
                         # Play the first chunk after the stabilization delay with timing
                         first_chunk_start = time.time()
                         logging.info(f"Starting playback of first chunk after {playback_delay:.3f}s stabilization")
-                        play_audio(first_chunk_file)
+                        if AUDIO_REACTIVE_ENABLED:
+                            play_audio_reactive(first_chunk_file)
+                        else:
+                            play_audio(first_chunk_file)
                         first_chunk_duration = time.time() - first_chunk_start
                         logging.info(f"First chunk playback completed in {first_chunk_duration:.3f}s")
                         
@@ -758,7 +800,10 @@ def main():
                                 
                                 chunk_play_start = time.time()
                                 logging.info(f"Playing chunk {chunk_index+1} (gap: {inter_chunk_time:.3f}s, queue_size: {stats['queue_size']})")
-                                play_audio(next_chunk)
+                                if AUDIO_REACTIVE_ENABLED:
+                                    play_audio_reactive(next_chunk)
+                                else:
+                                    play_audio(next_chunk)
                                 chunk_play_time = time.time() - chunk_play_start
                                 logging.debug(f"Chunk {chunk_index+1} playback took {chunk_play_time:.3f}s")
                                 

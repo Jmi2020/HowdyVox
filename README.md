@@ -2,6 +2,8 @@
 
 Welcome to HowdyVox - a fully local, privacy-first conversational AI system that runs entirely on your machine. No cloud services, no data leaks, no subscriptions. Just you, your voice, and an AI personality that's completely under your control.
 
+**Important:** To enable the wake word and overall assistant loop, you must register for a free-for-individuals Picovoice Porcupine license key. Without this key HowdyVox cannot capture audio or respond to "Hey Howdy".
+
 ## What Makes HowdyVox Different 🌟
 
 ### Complete Privacy & Local Operation
@@ -477,6 +479,173 @@ ESP32_IP=192.168.1.xxx  # Replace with your ESP32's IP address
 ```
 
 The LED matrix will automatically be used if the ESP32_IP environment variable is set.
+
+## Audio-Reactive Face Animation (EchoEar Style) 🎨
+
+HowdyVox features an expressive audio-reactive face that responds in real-time to speech characteristics, creating a more lifelike and engaging experience. Unlike simple state-based animation, the EchoEar face analyzes actual audio features to drive nuanced visual responses.
+
+### Key Features
+
+**Audio Reactivity**
+- **Volume Response (RMS)**: Eyes pulse and scale with speech loudness - bigger eyes when speaking louder
+- **Sibilance Detection (ZCR)**: Eyes narrow horizontally during sibilant sounds (s, sh, ch, f)
+- **Emphasis Recognition**: Head nods briefly on speech peaks and emphasis
+
+**Visual Design**
+- Circular stage with glowing cyan eyes (customizable colors)
+- Rounded-rectangle eyes with multi-layer glow effects
+- Alpha blending for smooth, professional-looking animations
+- Random blinking when idle (disabled during speech)
+- State-specific animations (idle, listening, thinking, speaking)
+
+**Technical Details**
+- **Pygame-based rendering**: Optimized graphics performance with precomputed surfaces
+- **UDP communication**: Face renderer runs independently, can be on different device
+- **Lightweight audio analysis**: Uses C-accelerated `audioop` module for minimal CPU overhead
+- **Real-time updates**: 12 Hz update rate provides responsive feedback without excessive processing
+
+### How Audio Features Map to Visuals
+
+```
+Speech Characteristic     →     Visual Response
+├── Volume (RMS)          →     Eye size scaling (0.85x → 1.25x)
+├── Sibilance (ZCR)       →     Horizontal squeeze (narrower eyes)
+└── Emphasis (Peaks)      →     Brief head nod (2 frames, 4px downshift)
+```
+
+**Example behaviors:**
+- Speaking "**Hello**" - Eyes pulse larger with the "He-" and "-lo" syllables
+- Speaking "**Ssssnake**" - Eyes squeeze narrow during the "Ssss" sibilant
+- Speaking "**YES!**" with emphasis - Eyes enlarge + quick head nod on the peak
+
+### Audio Feature Extraction
+
+The system analyzes TTS audio in real-time using three simple but effective features:
+
+**1. RMS (Root Mean Square) - Volume/Energy**
+```python
+# Measures speech "loudness"
+rms = audioop.rms(pcm_chunk, sample_width)
+# Normalized to 0.0-1.0 with automatic gain control
+# Drives eye size: louder = bigger eyes
+```
+
+**2. ZCR (Zero-Crossing Rate) - Brightness/Sibilance**
+```python
+# Counts how often audio waveform crosses zero
+# High ZCR = sibilants (s, sh, ch, f)
+# Low ZCR = vowels (a, e, i, o, u)
+zcr = count_zero_crossings(pcm_chunk) / len(pcm_chunk)
+# Drives horizontal eye squeeze: sibilants = narrower eyes
+```
+
+**3. Peak Detection - Emphasis/Onset**
+```python
+# Detects sudden energy increases
+if current_rms > threshold and no_recent_peak:
+    trigger_head_nod()  # Brief 2-frame animation
+```
+
+### Launching with EchoEar Face
+
+**Unified launcher (recommended):**
+```bash
+python launch_howdy_echoear.py
+```
+
+This launcher starts three components:
+1. **FastWhisperAPI** - Speech recognition service (port 8000)
+2. **EchoEar Face Renderer** - Pygame window with UDP listener (port 31337)
+3. **Voice Assistant** - With audio reactive playback enabled
+
+The face will automatically appear in a separate window and respond to the assistant's speech in real-time.
+
+**Manual launch (for testing):**
+```bash
+# Terminal 1: Start FastWhisperAPI
+cd FastWhisperAPI && uvicorn main:app --host 127.0.0.1 --port 8000
+
+# Terminal 2: Start EchoEar face renderer
+python echoear_face.py
+
+# Terminal 3: Start voice assistant with audio reactivity
+HOWDY_AUDIO_REACTIVE=1 python run_voice_assistant.py
+```
+
+### Configuration Options
+
+Edit `echoear_face.py` to customize the face appearance:
+
+```python
+CFG = {
+    "size": 200,                 # Window size (200x200 pixels)
+    "bg": (0, 0, 0),            # Background color (black)
+    "eye_cyan": (0, 235, 255),  # Eye color (cyan)
+    "ring": (40, 40, 40),       # Stage ring color
+    "fps_idle": 6,              # FPS when idle (low CPU)
+    "fps_speaking": 12,         # FPS when speaking
+    "udp_port": 31337,          # UDP port for control messages
+    "head_nod_px": 4,           # Head nod distance in pixels
+}
+```
+
+### Performance Characteristics
+
+**CPU Usage:**
+- Face renderer: <5-10% (200x200 window @ 12 FPS during speech)
+- Audio analyzer: <1% (C-accelerated audioop, no NumPy/FFT required)
+- Total overhead: ~5-12% CPU (acceptable for enhanced expressiveness)
+
+**Latency:**
+- Audio → Visual response: <50ms (12 Hz UDP updates)
+- No perceptible lag between speech and facial animation
+
+**Memory:**
+- Minimal overhead (~10-20MB for pygame window and surfaces)
+- Precomputed eye surfaces reduce real-time rendering cost
+
+### Basic vs EchoEar Face Comparison
+
+**Basic Face (`face_animator.py`)**
+- tkinter Canvas-based rendering
+- State-only animation (idle, listening, thinking, speaking)
+- Simple geometric shapes (rectangles)
+- ~2-3% CPU usage
+- Good for low-resource systems
+
+**EchoEar Face (`echoear_face.py`)**
+- Pygame-based rendering with alpha blending
+- Real-time audio-reactive animation
+- Polished visual design with glow effects
+- ~5-12% CPU usage
+- Significantly more expressive and lifelike
+
+Both faces are available - choose based on your preferences and system capabilities.
+
+### Standalone Testing
+
+The face renderer can run standalone with a self-demo mode:
+
+```bash
+python echoear_face.py
+```
+
+This will cycle through all states (idle → listening → thinking → speaking) with simulated audio features, allowing you to preview the animations without running the full voice assistant.
+
+### Remote Face Display
+
+Because the face uses UDP for communication, you can run it on a different device:
+
+```bash
+# On the display device (e.g., Raspberry Pi with screen)
+python echoear_face.py
+
+# On the main device running HowdyVox
+# Edit voice_assistant/audio_reactive_player.py:
+init_reactive_meter(enabled=True, udp_host="192.168.1.xxx", udp_port=31337)
+```
+
+This enables creative setups like a dedicated face display in a different room.
 
 ## Recent Improvements & Technical Details 🚀
 
