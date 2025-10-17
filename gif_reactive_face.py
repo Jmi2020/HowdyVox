@@ -29,6 +29,7 @@ CFG = {
 
 # GIF file mapping to states
 GIF_MAP = {
+    "loading": "loading_tilt_loop.gif",
     "idle": "waiting_blink_loop.gif",
     "listening": "listening_glow_loop.gif",
     "thinking": "thinking_stars_motion.gif",
@@ -193,7 +194,7 @@ class AudioReactiveGifFace:
         self.clock = pg.time.Clock()
 
         # State management
-        self.state = "idle"
+        self.state = "loading"  # Start in loading state
         self.level = 0.0        # RMS volume (0.0-1.0)
         self.zcr = 0.0          # Zero-crossing rate (0.0-1.0)
         self.peak_frames = 0    # Peak animation counter

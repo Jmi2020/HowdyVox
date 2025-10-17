@@ -38,6 +38,10 @@ from voice_assistant.hotkey_manager import get_hotkey_manager, start_hotkeys, st
 # Import greeting generator for dynamic wake word responses
 from voice_assistant.greeting_generator import generate_wake_greeting
 
+# Import subprocess for loading screen
+import subprocess
+import socket
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -55,6 +59,59 @@ activation_sound_playing = threading.Event()  # Flag to track if activation soun
 is_first_turn_after_wake = threading.Event()  # Flag to track if this is the first turn after wake word
 network_audio_source = None  # Wireless audio source instance
 audio_source_manager = None  # Audio source manager instance
+greeting_thread = None  # Track greeting generation thread
+greeting_cancelled = threading.Event()  # Signal to cancel greeting generation
+loading_screen_process = None  # Track loading screen subprocess
+
+def send_face_state(state):
+    """
+    Send state message to face window via UDP.
+
+    Args:
+        state (str): State to send ('loading', 'idle', 'listening', etc.)
+    """
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.sendto(state.encode('utf-8'), ('127.0.0.1', 31337))
+        sock.close()
+    except Exception as e:
+        logging.debug(f"Failed to send face state: {e}")
+
+def start_loading_screen():
+    """Start the loading screen subprocess."""
+    global loading_screen_process
+    try:
+        # Launch gif_reactive_face.py as subprocess
+        loading_screen_process = subprocess.Popen(
+            ['python', 'gif_reactive_face.py'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        # Give it time to start
+        time.sleep(0.5)
+        # Send loading state
+        send_face_state('loading')
+        logging.info("Loading screen started")
+    except Exception as e:
+        logging.error(f"Failed to start loading screen: {e}")
+        loading_screen_process = None
+
+def stop_loading_screen():
+    """Stop the loading screen subprocess."""
+    global loading_screen_process
+    if loading_screen_process:
+        try:
+            loading_screen_process.terminate()
+            loading_screen_process.wait(timeout=2.0)
+            logging.info("Loading screen stopped")
+        except Exception as e:
+            logging.debug(f"Error stopping loading screen: {e}")
+            try:
+                loading_screen_process.kill()
+            except:
+                pass
+        finally:
+            loading_screen_process = None
 
 def update_led_state(state, text=None):
     """
@@ -170,7 +227,7 @@ def check_end_conversation(text):
 
 def handle_wake_word():
     """Callback function when wake word is detected"""
-    # No need for global declaration as it's already declared at module level
+    global greeting_thread
 
     logging.info("Wake word detected, activating conversation mode")
     # Set the events to trigger conversation mode
@@ -182,6 +239,9 @@ def handle_wake_word():
 
     # Generate and play dynamic greeting
     try:
+        # Clear cancellation flag for new greeting
+        greeting_cancelled.clear()
+
         # Signal that greeting is playing
         activation_sound_playing.set()
 
@@ -191,10 +251,11 @@ def handle_wake_word():
         logging.info(f"Generated greeting: '{greeting_text}'")
 
         # Play the greeting in a separate thread so we don't block
-        threading.Thread(
+        greeting_thread = threading.Thread(
             target=lambda: play_greeting_and_clear_flag(greeting_text),
             daemon=True
-        ).start()
+        )
+        greeting_thread.start()
 
         # Brief pause to ensure the playback thread starts
         time.sleep(0.1)
@@ -204,6 +265,7 @@ def handle_wake_word():
         logging.error(f"Greeting generation/playback error: {e}, continuing without it")
         # Clear the flag in case of error
         activation_sound_playing.clear()
+        greeting_thread = None
 
     # Update LED matrix to show "Listening" right away
     update_led_state('listening')
@@ -217,9 +279,15 @@ def play_greeting_and_clear_flag(greeting_text):
         greeting_text (str): The greeting text to speak
     """
     try:
+        # Check if greeting was cancelled before generation
+        if greeting_cancelled.is_set():
+            logging.info("Greeting generation cancelled before TTS")
+            return
+
         # Generate TTS for the greeting
         tts_api_key = get_tts_api_key()
-        greeting_file = "temp/greeting.wav"
+        # Use timestamp to ensure unique greeting files
+        greeting_file = f"temp/greeting_{int(time.time() * 1000)}.wav"
 
         success, audio_file = text_to_speech(
             Config.TTS_MODEL,
@@ -229,12 +297,23 @@ def play_greeting_and_clear_flag(greeting_text):
             Config.LOCAL_MODEL_PATH
         )
 
+        # Check again after generation (might have been cancelled during TTS)
+        if greeting_cancelled.is_set():
+            logging.info("Greeting cancelled after generation")
+            if success and audio_file:
+                delete_file(audio_file)
+            return
+
         if success and audio_file:
             # Play the greeting (with audio reactivity if enabled)
             if AUDIO_REACTIVE_ENABLED:
                 play_audio_reactive(audio_file)
             else:
                 play_audio(audio_file)
+
+            # Ensure audio resources are released before deleting file
+            time.sleep(0.1)
+
             # Clean up the file
             delete_file(audio_file)
         else:
@@ -242,9 +321,13 @@ def play_greeting_and_clear_flag(greeting_text):
 
     except Exception as e:
         logging.error(f"Error playing greeting: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         # Always clear the flag when greeting playback completes
         activation_sound_playing.clear()
+        # Additional delay to ensure all audio resources are fully released
+        time.sleep(0.1)
 
 def safe_start_wake_word_detection():
     """Safely start a new wake word detection with error handling"""
@@ -303,27 +386,30 @@ def signal_handler(sig, frame):
     print(f"\n{Fore.YELLOW}Shutting down...{Fore.RESET}")
     stop_signal.set()
 
+    # Stop loading screen if running
+    stop_loading_screen()
+
     # Set matrix to waiting state before exiting
     update_led_state('waiting')
-    
+
     # Cleanup audio source manager
     if audio_source_manager:
         print(f"{Fore.CYAN}Cleaning up audio source manager...{Fore.RESET}")
         audio_source_manager.cleanup()
-    
+
     # Cleanup global audio manager
     cleanup_audio_manager()
-    
+
     # Stop hotkeys
     stop_hotkeys()
-    
+
     # Cleanup all wake word detectors
     cleanup_all_detectors()
-    
+
     # Perform targeted garbage collection to clean up audio resources
     cleaned_count = targeted_gc()
     print(f"{Fore.CYAN}Cleaned up {cleaned_count} audio resources{Fore.RESET}")
-    
+
     sys.exit(0)
 
 def main():
@@ -332,7 +418,11 @@ def main():
     and continuous conversation support.
     """
     global led_matrix, network_audio_source, audio_source_manager
-    
+
+    # Start loading screen immediately
+    print(Fore.CYAN + "Starting HowdyVox..." + Fore.RESET)
+    start_loading_screen()
+
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='HowdyVox Voice Assistant')
     parser.add_argument('--wireless', action='store_true', 
@@ -494,7 +584,14 @@ def main():
     # Start the wake word detection
     if not safe_start_wake_word_detection():
         print(Fore.RED + "Failed to start wake word detection. Exiting..." + Fore.RESET)
+        stop_loading_screen()
         return
+
+    # Transition loading screen to idle state (or stop if user prefers)
+    send_face_state('idle')
+    # Alternatively, stop the loading screen completely:
+    # stop_loading_screen()
+    logging.info("System ready - transitioning to idle state")
     
     while not stop_signal.is_set():
         try:
@@ -572,14 +669,21 @@ def main():
                 # Reset LED matrix to waiting
                 update_led_state('waiting')
                 print(Fore.YELLOW + "Sorry, I'm having trouble hearing you. Say 'Hey Howdy' to try again!" + Fore.RESET)
-                
+
                 # Aggressive cleanup to prevent memory leaks and segfaults
                 logging.info("Performing aggressive cleanup after recording failure...")
+
+                # Cancel any ongoing greeting generation
+                greeting_cancelled.set()
+                if greeting_thread and greeting_thread.is_alive():
+                    logging.info("Waiting for greeting thread to finish...")
+                    greeting_thread.join(timeout=2.0)  # Wait up to 2 seconds
+
                 cleanup_all_detectors()
                 import gc
                 gc.collect()
                 time.sleep(0.5)  # Brief pause for cleanup
-                
+
                 # Force restart wake word detection
                 if not safe_start_wake_word_detection():
                     logging.error("Failed to restart wake word detection after recording failure")
@@ -587,7 +691,7 @@ def main():
                     if not safe_start_wake_word_detection():
                         logging.error("Failed to restart wake word detection on second attempt")
                         break  # Exit main loop if we can't restart wake word detection
-                
+
                 continue  # Go back to wake word detection
 
             # Get the API key for transcription (will be None for FastWhisperAPI)
@@ -665,26 +769,35 @@ def main():
                 
                 # End the conversation
                 conversation_active.clear()
-                
+
                 # Force recreation of wake word detector to avoid memory issues
                 try:
                     logging.info("Restarting wake word detection after conversation...")
+
+                    # Cancel any ongoing greeting generation
+                    greeting_cancelled.set()
+                    if greeting_thread and greeting_thread.is_alive():
+                        logging.info("Waiting for greeting thread to finish...")
+                        greeting_thread.join(timeout=2.0)  # Wait up to 2 seconds
+                        if greeting_thread.is_alive():
+                            logging.warning("Greeting thread did not finish, proceeding anyway")
+
                     # First stop the current detector
                     if wake_word_detector:
                         wake_word_detector.stop()
-                    
+
                     # Run targeted garbage collection to free audio resources
                     cleaned_count = targeted_gc()
                     logging.info(f"Cleaned up {cleaned_count} audio-related objects")
-                    
+
                     # Wait for resources to be completely released
                     time.sleep(0.5)  # Short pause to allow resource cleanup
-                    
+
                     # Create a fresh detector
                     safe_start_wake_word_detection()
                 except Exception as e:
                     logging.error(f"Error recreating wake word detector: {e}")
-                
+
                 continue
 
             # Append the user's input to the chat history
@@ -873,12 +986,15 @@ def main():
             time.sleep(1)
     
     # Cleanup
+    # Stop loading screen if still running
+    stop_loading_screen()
+
     # Set matrix to waiting state before exiting
     update_led_state('waiting')
-    
+
     # Clean up detectors and audio resources
     cleanup_all_detectors()
-    
+
     # Perform targeted garbage collection
     cleaned_count = targeted_gc()
     print(f"{Fore.CYAN}Cleaned up {cleaned_count} audio resources{Fore.RESET}")
@@ -888,6 +1004,7 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print(f"\n{Fore.YELLOW}Shutting down due to keyboard interrupt...{Fore.RESET}")
+        stop_loading_screen()
         update_led_state('waiting')
         cleanup_all_detectors()
 
@@ -898,9 +1015,10 @@ if __name__ == "__main__":
         print(f"\n{Fore.RED}Fatal error: {e}{Fore.RESET}")
         import traceback
         traceback.print_exc()
+        stop_loading_screen()
         update_led_state('waiting')
         cleanup_all_detectors()
-        
+
         # Still try to clean up audio resources
         try:
             targeted_gc()

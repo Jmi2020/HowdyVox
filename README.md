@@ -124,12 +124,14 @@ HowdyVox orchestrates multiple components like a conductor who's had too much co
 
 When you launch HowdyVox, here's what happens in the first 10-15 seconds:
 
-1. **Port Cleanup**: Murders any zombie FastWhisperAPI processes squatting on port 8000
-2. **FastWhisperAPI Launch**: Starts the local speech recognition server in a separate process (like a responsible parent)
-3. **Model Preloading**: Loads Kokoro TTS and Ollama LLM into memory so your first response doesn't take geological time scales
-4. **Face Initialization**: Loads your chosen face renderer (GIF or EchoEar) with that sweet rounded icon
-5. **Wake Word Listener**: Porcupine starts listening for "Hey Howdy" with minimal CPU usage
-6. **Conversation Loop**: Once activated, Howdy enters conversation mode and won't shut up until you say "goodbye"
+1. **Loading Screen**: Animated "LOADING..." screen appears immediately (because waiting without feedback is torture)
+2. **Port Cleanup**: Murders any zombie FastWhisperAPI processes squatting on port 8000
+3. **FastWhisperAPI Launch**: Starts the local speech recognition server in a separate process (like a responsible parent)
+4. **Model Preloading**: Loads Kokoro TTS and Ollama LLM into memory so your first response doesn't take geological time scales
+5. **Face Initialization**: Loads your chosen face renderer (GIF or EchoEar) with that sweet rounded icon
+6. **Loading Complete**: Screen transitions from loading animation to idle/waiting face
+7. **Wake Word Listener**: Porcupine starts listening for "Hey Howdy" with minimal CPU usage
+8. **Conversation Loop**: Once activated, Howdy enters conversation mode and won't shut up until you say "goodbye"
 
 ## Prerequisites (The Boring But Necessary Part) ✅
 

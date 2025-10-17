@@ -138,8 +138,9 @@ def record_audio(file_path, timeout=10, phrase_time_limit=None, retries=3, energ
                     time.sleep(0.5)
             
             logging.error("All Mac recording attempts failed")
-            # Fall through to fallback
-    
+            # Return False to let main loop handle fallback to wake word detection
+            return False
+
     # Check if intelligent VAD is enabled
     if Config.USE_INTELLIGENT_VAD:
         logging.info("Using intelligent VAD for recording")
@@ -283,8 +284,14 @@ def play_audio(file_path):
         if file_extension == '.wav':
             # Play WAV files using the wave and pyaudio modules
             wf = wave.open(file_path, 'rb')
-            p = pyaudio.PyAudio()
-            
+
+            try:
+                p = pyaudio.PyAudio()
+            except Exception as e:
+                logging.error(f"Failed to initialize PyAudio: {e}")
+                wf.close()
+                raise
+
             stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
                             channels=wf.getnchannels(),
                             rate=wf.getframerate(),
@@ -301,6 +308,9 @@ def play_audio(file_path):
             stream.close()
             p.terminate()
             wf.close()
+
+            # Brief delay to ensure PyAudio resources are fully released
+            time.sleep(0.05)
         elif file_extension == '.mp3':
             # For MP3 files, try different approaches depending on platform
             try:
@@ -397,6 +407,9 @@ def play_audio_chunks(chunk_files):
                 stream.close()
                 p.terminate()
                 wf.close()
+
+                # Brief delay to ensure PyAudio resources are fully released
+                time.sleep(0.05)
             elif file_extension == '.mp3':
                 # Get a buffer from the pool for WAV conversion
                 buffer = get_audio_buffer()
@@ -429,7 +442,10 @@ def play_audio_chunks(chunk_files):
                     stream.close()
                     p.terminate()
                     wf.close()
-                    
+
+                    # Brief delay to ensure PyAudio resources are fully released
+                    time.sleep(0.05)
+
                     # Clean up temp file
                     try:
                         os.remove(temp_wav)

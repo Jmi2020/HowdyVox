@@ -56,6 +56,9 @@ chunk_queue = queue.Queue()
 # Flag to signal generation is complete
 generation_complete = threading.Event()
 
+# Thread lock to protect Kokoro TTS access (ONNX Runtime is not thread-safe)
+kokoro_lock = threading.Lock()
+
 def clean_text_for_tts(text):
     """
     Clean text before sending to TTS by removing formatting characters like asterisks.
@@ -120,10 +123,11 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
         if model == "kokoro":
             # Create audio directory if it doesn't exist
             os.makedirs("temp/audio", exist_ok=True)
-            
-            # Get file extension
-            file_base = "temp/audio/output"
-            file_ext = os.path.splitext(output_file_path)[1]
+
+            # Use output_file_path to determine base name (prevents collision between greeting and response)
+            # Extract base name without extension
+            base_name = os.path.splitext(os.path.basename(output_file_path))[0]
+            file_base = f"temp/audio/{base_name}_chunk"
             output_format = '.wav'  # Always use WAV for better compatibility
             
             # Clean the text to remove asterisks and other formatting
@@ -155,20 +159,21 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
             
             # Generate ONLY the first chunk in the main thread with timing
             first_chunk = chunks[0]
-            first_chunk_file = f"{file_base}_chunk_0{output_format}"
+            first_chunk_file = f"{file_base}_0{output_format}"
             
             try:
                 # Track timing for first chunk generation
                 first_chunk_start = time.time()
-                
-                # Generate audio for first chunk
-                samples, sample_rate = kokoro.create(
-                    first_chunk, 
-                    voice=voice_model, 
-                    speed=Config.KOKORO_SPEED,  # Use config value instead of hardcoded 1.0
-                    lang="en-us"
-                )
-                
+
+                # Generate audio for first chunk (thread-safe with lock)
+                with kokoro_lock:
+                    samples, sample_rate = kokoro.create(
+                        first_chunk,
+                        voice=voice_model,
+                        speed=Config.KOKORO_SPEED,  # Use config value instead of hardcoded 1.0
+                        lang="en-us"
+                    )
+
                 # Save the audio file
                 sf.write(first_chunk_file, samples, sample_rate)
                 
@@ -190,24 +195,25 @@ def text_to_speech(model: str, api_key:str, text:str, output_file_path:str, loca
                         for i, chunk in enumerate(chunks[1:], start=1):
                             if not chunk.strip():
                                 continue
-                                
-                            chunk_file = f"{file_base}_chunk_{i}{output_format}"
+
+                            chunk_file = f"{file_base}_{i}{output_format}"
                             
                             try:
                                 chunk_start_time = time.time()
-                                
+
                                 # Apply inter-chunk stabilization delay for better audio quality
                                 if i > 1 and inter_chunk_stabilization > 0:
                                     time.sleep(inter_chunk_stabilization)
-                                
-                                # Generate audio for this chunk
-                                samples, sample_rate = kokoro.create(
-                                    chunk, 
-                                    voice=voice_model, 
-                                    speed=Config.KOKORO_SPEED,
-                                    lang="en-us"
-                                )
-                                
+
+                                # Generate audio for this chunk (thread-safe with lock)
+                                with kokoro_lock:
+                                    samples, sample_rate = kokoro.create(
+                                        chunk,
+                                        voice=voice_model,
+                                        speed=Config.KOKORO_SPEED,
+                                        lang="en-us"
+                                    )
+
                                 # Save the audio file
                                 sf.write(chunk_file, samples, sample_rate)
                                 
