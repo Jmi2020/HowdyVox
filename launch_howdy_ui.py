@@ -10,6 +10,7 @@ import time
 import signal
 import sys
 import threading
+import platform
 from ui_interface import create_ui
 
 # Track background processes
@@ -120,6 +121,15 @@ def monitor_voice_assistant():
 def main():
     """Main launcher function"""
     global ui_root, ui_instance
+
+    # Auto-configure library paths for M3 Mac
+    if platform.machine() == "arm64" and platform.system() == "Darwin":
+        opus_lib_path = "/opt/homebrew/opt/opus/lib"
+        if os.path.exists(opus_lib_path):
+            current_path = os.environ.get("DYLD_LIBRARY_PATH", "")
+            if opus_lib_path not in current_path:
+                os.environ["DYLD_LIBRARY_PATH"] = f"{opus_lib_path}:{current_path}"
+                print("✓ Auto-configured Opus library path for M3 Mac")
 
     try:
         # Start FastAPI

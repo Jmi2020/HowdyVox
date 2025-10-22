@@ -8,6 +8,7 @@ import os
 import time
 import signal
 import sys
+import platform
 
 # Track background process
 bg_proc = None
@@ -30,6 +31,18 @@ print("=" * 50)
 
 # Change to script directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
+# Auto-configure library paths for M3 Mac
+if platform.machine() == "arm64" and platform.system() == "Darwin":
+    opus_lib_path = "/opt/homebrew/opt/opus/lib"
+    if os.path.exists(opus_lib_path):
+        current_path = os.environ.get("DYLD_LIBRARY_PATH", "")
+        if opus_lib_path not in current_path:
+            os.environ["DYLD_LIBRARY_PATH"] = f"{opus_lib_path}:{current_path}"
+            print(f"✓ Auto-configured Opus library path for M3 Mac")
+    else:
+        print(f"⚠️  Warning: Opus library not found at {opus_lib_path}")
+        print(f"   Wireless audio may not work. Run: brew install opus")
 
 # Kill existing FastAPI
 subprocess.run("lsof -ti:8000 | xargs kill -9 2>/dev/null", shell=True)

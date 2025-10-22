@@ -143,7 +143,28 @@ When you launch HowdyVox, here's what happens in the first 10-15 seconds:
 - **CUDA GPU**: Optional, but makes everything faster (like most hardware upgrades)
 - **Apple Silicon**: Enhanced ONNX Runtime available for M-series Macs
 
+### 🍎 M3 Mac (Apple Silicon) Users - Read This First!
+
+If you're on an M3, M2, or M1 Mac, we've got you covered with automated setup:
+
+```bash
+# One-command automated setup
+./setup_m3_mac.sh
+```
+
+This handles all the M3-specific quirks:
+- Installs PortAudio and Opus via Homebrew
+- Compiles PyAudio with proper Apple Silicon flags
+- Configures library paths automatically
+- Sets up conda environment activation scripts
+
+**Or skip to the detailed guide:** See [M3_MAC_SETUP.md](M3_MAC_SETUP.md) for step-by-step instructions.
+
+**Already have issues?** Run `./verify_installation.py` to diagnose problems.
+
 ## Setup (Let's Get This Show on the Road) 🔧
+
+> **Note:** M3 Mac users should use `./setup_m3_mac.sh` instead of following these manual steps.
 
 ### 1. Clone this bad boy
 ```bash
