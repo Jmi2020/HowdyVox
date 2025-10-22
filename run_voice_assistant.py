@@ -113,6 +113,26 @@ def stop_loading_screen():
         finally:
             loading_screen_process = None
 
+def print_response_text(text):
+    """
+    Print response text to console without changing LED/face state.
+
+    Args:
+        text (str): The response text to print
+    """
+    # Handle multi-paragraph responses - print each paragraph separately
+    # This ensures the UI captures all text even with newlines
+    paragraphs = text.split('\n\n')
+
+    # Print first paragraph with "Howdy:" prefix
+    if paragraphs:
+        print(f"{Fore.CYAN}Howdy:{Fore.RESET} {paragraphs[0].strip()}")
+
+        # Print remaining paragraphs with continuation indent
+        for para in paragraphs[1:]:
+            if para.strip():  # Only print non-empty paragraphs
+                print(f"       {para.strip()}")
+
 def update_led_state(state, text=None):
     """
     Update LED matrix state and print to console.
@@ -816,6 +836,9 @@ def main():
             # Append the assistant's response to the chat history
             chat_history.append({"role": "assistant", "content": response_text})
 
+            # Print the response text immediately (but don't change state yet)
+            print_response_text(response_text)
+
             # For Kokoro, always use WAV output
             output_file = 'output.wav'
 
@@ -825,8 +848,7 @@ def main():
             # Signal that we're starting audio processing
             playback_complete_event.clear()
 
-            # Update LED matrix to "speaking" mode with the response text
-            update_led_state('speaking', response_text)
+            # State will change to "speaking" when first chunk actually starts playing
             
             # Determine adaptive delays based on response complexity
             response_length = len(response_text)
@@ -866,7 +888,10 @@ def main():
                         # Enhanced adaptive delay with detailed logging
                         logging.info(f"Using {playback_delay:.3f}s stabilization delay for {response_length} character response")
                         time.sleep(playback_delay)
-                        
+
+                        # NOW change state to "speaking" right before audio actually starts
+                        update_led_state('speaking', response_text)
+
                         # Play the first chunk after the stabilization delay with timing
                         first_chunk_start = time.time()
                         logging.info(f"Starting playback of first chunk after {playback_delay:.3f}s stabilization")
