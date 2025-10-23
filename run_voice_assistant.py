@@ -29,9 +29,7 @@ from voice_assistant.voice_initializer import initialize_success as voice_initia
 # Import the fixed wake word implementation
 from voice_assistant.wake_word import WakeWordDetector, SpeechRecognitionWakeWord, cleanup_all_detectors
 
-# Import wireless audio support
-from voice_assistant.network_audio_source import NetworkAudioSource
-from voice_assistant.wireless_device_manager import WirelessDeviceManager
+# Import audio source manager (wireless imports will be lazy-loaded to avoid Opus dependency issues)
 from voice_assistant.audio_source_manager import AudioSourceManager, AudioSourceType, get_audio_manager, set_audio_manager, cleanup_audio_manager
 from voice_assistant.hotkey_manager import get_hotkey_manager, start_hotkeys, stop_hotkeys
 

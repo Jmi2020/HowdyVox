@@ -7,16 +7,40 @@ from typing import Optional, Dict, Any, Callable
 from enum import Enum
 
 from .audio import record_audio as local_record_audio
-try:
-    from .network_audio_source import NetworkAudioSource
-    WIRELESS_AVAILABLE = True
-except ImportError:
-    WIRELESS_AVAILABLE = False
-    logging.warning("Wireless audio support not available")
+
+# Wireless imports are lazy-loaded to avoid Opus dependency when not needed
+WIRELESS_AVAILABLE = None  # Will be set on first wireless check
+NetworkAudioSource = None  # Will be imported when needed
 
 class AudioSourceType(Enum):
     LOCAL = "local"
     WIRELESS = "wireless"
+
+
+def _ensure_wireless_loaded() -> bool:
+    """
+    Lazy-load wireless audio support.
+    Only imports NetworkAudioSource when wireless functionality is actually needed.
+    Returns True if wireless is available, False otherwise.
+    """
+    global WIRELESS_AVAILABLE, NetworkAudioSource
+
+    # Return cached result if already checked
+    if WIRELESS_AVAILABLE is not None:
+        return WIRELESS_AVAILABLE
+
+    # Try to import wireless support
+    try:
+        from .network_audio_source import NetworkAudioSource as _NetworkAudioSource
+        NetworkAudioSource = _NetworkAudioSource
+        WIRELESS_AVAILABLE = True
+        logging.info("Wireless audio support loaded successfully")
+        return True
+    except ImportError as e:
+        WIRELESS_AVAILABLE = False
+        logging.warning(f"Wireless audio support not available: {e}")
+        return False
+
 
 class AudioSourceManager:
     """
@@ -85,7 +109,8 @@ class AudioSourceManager:
         Switch to wireless microphone with lazy initialization.
         Only initializes wireless components when first needed.
         """
-        if not WIRELESS_AVAILABLE:
+        # Lazy-load wireless support if not already loaded
+        if not _ensure_wireless_loaded():
             logging.error("Wireless audio support not available")
             return False
         
@@ -180,10 +205,10 @@ class AudioSourceManager:
         Auto-select best available source.
         Tries wireless first, falls back to local.
         """
-        if WIRELESS_AVAILABLE:
+        if _ensure_wireless_loaded():
             if self.switch_to_wireless():
                 return AudioSourceType.WIRELESS
-        
+
         # Fallback to local
         self.switch_to_local()
         return AudioSourceType.LOCAL
@@ -193,7 +218,7 @@ class AudioSourceManager:
         info = {
             'current_source': self.current_source.value,
             'target_room': self.target_room,
-            'wireless_available': WIRELESS_AVAILABLE,
+            'wireless_available': WIRELESS_AVAILABLE if WIRELESS_AVAILABLE is not None else False,
             'wireless_initialized': self._network_initialized,
             'wireless_failed': self._network_failed
         }
@@ -209,13 +234,13 @@ class AudioSourceManager:
     
     def get_available_devices(self) -> list:
         """Get list of available wireless devices (initializes wireless if needed)."""
-        if not WIRELESS_AVAILABLE:
+        if not _ensure_wireless_loaded():
             return []
-        
+
         if not self._network_initialized:
             if not self._initialize_wireless():
                 return []
-        
+
         return self._network_source.get_available_devices() if self._network_source else []
     
     def record_audio(self, *args, **kwargs):

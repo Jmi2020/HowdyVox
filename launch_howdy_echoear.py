@@ -9,6 +9,7 @@ import os
 import time
 import signal
 import sys
+import platform
 
 # Track all processes
 fastapi_proc = None
@@ -106,18 +107,18 @@ def main():
     env = os.environ.copy()
     env["HOWDY_AUDIO_REACTIVE"] = "1"
 
-    voice_cmd = [
-        "/opt/anaconda3/bin/conda",
-        "run",
-        "-n",
-        "howdy310",
-        "--no-capture-output",
-        "python",
-        "-u",
-        "run_voice_assistant.py",
-    ]
+    # Auto-configure library paths for M3 Mac
+    if platform.machine() == "arm64" and platform.system() == "Darwin":
+        opus_lib_path = "/opt/homebrew/opt/opus/lib"
+        if os.path.exists(opus_lib_path):
+            current_path = env.get("DYLD_LIBRARY_PATH", "")
+            if opus_lib_path not in current_path:
+                env["DYLD_LIBRARY_PATH"] = f"{opus_lib_path}:{current_path}"
 
-    voice_proc = subprocess.Popen(voice_cmd, env=env)
+    # Use shell command to ensure DYLD_LIBRARY_PATH is passed through conda
+    voice_cmd = f"cd '{os.getcwd()}' && /opt/anaconda3/bin/conda run -n howdy310 --no-capture-output python -u run_voice_assistant.py"
+
+    voice_proc = subprocess.Popen(voice_cmd, env=env, shell=True)
 
     print("=" * 50)
     print("✓ All systems running!")
